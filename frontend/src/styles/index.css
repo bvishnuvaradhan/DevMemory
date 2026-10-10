@@ -3,6 +3,14 @@
 @tailwind utilities;
 
 @layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
   body {
     @apply bg-[#F4F7FC] text-slate-800 antialiased font-sans;
     background-color: #F4F7FC;
@@ -50,7 +58,12 @@
   }
 }
 
-/* Subtle light scrollbars for code and tables */
+/* Subtle light scrollbars for code, tables, and scroll areas */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #CBD5E1 #F1F5F9;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

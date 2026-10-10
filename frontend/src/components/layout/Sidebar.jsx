@@ -23,7 +23,7 @@ export default function Sidebar({ projects = [] }) {
     }`;
 
   return (
-    <aside className="w-64 shrink-0 border-r border-slate-200/80 bg-white/60 backdrop-blur-md p-4 flex flex-col justify-between hidden md:flex shadow-xs">
+    <aside className="w-64 shrink-0 h-full border-r border-slate-200/80 bg-white/60 backdrop-blur-md p-4 flex flex-col justify-between hidden md:flex shadow-xs overflow-y-auto z-20">
       <div className="space-y-6">
         {/* Main Navigation */}
         <div>
@@ -109,7 +109,7 @@ export default function Sidebar({ projects = [] }) {
       </div>
 
       {/* CLI Quick Usage Box */}
-      <div className="rounded-xl border border-slate-200 bg-white/80 p-3 text-xs shadow-xs">
+      <div className="mt-6 shrink-0 rounded-xl border border-slate-200 bg-white/80 p-3 text-xs shadow-xs">
         <span className="text-[10px] font-mono text-slate-400 uppercase font-semibold">CLI Command</span>
         <code className="mt-1.5 block font-mono text-[11px] text-slate-800 bg-slate-100/90 p-2 rounded-lg border border-slate-200/80 overflow-x-auto">
           devmemory run -- &lt;cmd&gt;

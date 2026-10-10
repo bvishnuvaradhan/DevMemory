@@ -36,7 +36,7 @@ export default function App() {
   const selectedProjectId = match ? match[1] : null;
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#F4F7FC] text-slate-800 relative">
+    <div className="flex h-screen w-full flex-col bg-[#F4F7FC] text-slate-800 relative overflow-hidden">
       {/* Soft background ambient pastel gradients for glassmorphism */}
       <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
         <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-blue-100/70 blur-3xl" />
@@ -44,22 +44,23 @@ export default function App() {
         <div className="absolute -bottom-32 left-1/3 w-96 h-96 rounded-full bg-emerald-100/50 blur-3xl" />
       </div>
 
-      {/* Demo / Mock banner at top */}
-      <DemoBanner isMock={isMock} />
+      {/* Top Header: Stationary & fixed at top of viewport */}
+      <header className="shrink-0 z-30 flex flex-col w-full shadow-xs">
+        <DemoBanner isMock={isMock} />
+        <Navbar
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          isMock={isMock}
+        />
+      </header>
 
-      {/* Top Navbar */}
-      <Navbar
-        projects={projects}
-        selectedProjectId={selectedProjectId}
-        isMock={isMock}
-      />
-
-      <div className="flex flex-1">
+      {/* Main Layout Area: Stationary left sidebar + vertically scrollable main content */}
+      <div className="flex flex-1 min-h-0 overflow-hidden relative">
         {/* Persistent Sidebar */}
         <Sidebar projects={projects} />
 
-        {/* Main Content View */}
-        <main className="flex-1 overflow-y-auto">
+        {/* Main Content View: Primary vertical scroll container */}
+        <main className="flex-1 min-w-0 h-full overflow-y-auto" id="main-content">
           <Routes>
             <Route
               path="/"

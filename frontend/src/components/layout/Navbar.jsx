@@ -17,7 +17,7 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200/80 bg-white/75 px-6 backdrop-blur-md shadow-sm">
+    <nav className="flex h-16 w-full items-center justify-between border-b border-slate-200/80 bg-white/75 px-6 backdrop-blur-md">
       <div className="flex items-center gap-6">
         <Link to="/" className="flex items-center gap-3 group">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-indigo-600 shadow-md shadow-brand-500/20 group-hover:scale-105 transition-transform">
@@ -77,6 +77,6 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
           <Github className="h-4 w-4" />
         </a>
       </div>
-    </header>
+    </nav>
   );
 }
