@@ -55,7 +55,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="DevMemory API",
         description="Persistent developer memory and troubleshooting platform backend API.",
-        version="0.5.0",
+        version="0.6.0",
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",

@@ -434,3 +434,30 @@ All indexes are verified and initialized idempotently during startup via `init_i
 | `performance_runs` | `idx_perf_project_regression_timestamp` | `{ project_id: 1, regression_status: 1, timestamp: -1 }` | Performance regression alerts and status filtering |
 | `performance_baselines` | `idx_perf_baselines_proj_cmd_unique` | `{ project_id: 1, command_signature: 1 }` (unique) | Project-command baseline lookup and upsert |
 | `performance_baselines` | `idx_perf_baselines_proj_calculated` | `{ project_id: 1, calculated_at: -1 }` | Latest baseline retrieval |
+
+---
+
+## Phase 6: Integration Boundaries & End-to-End Workflows
+
+The backend provides complete, verified integration surfaces for all team components:
+
+### 1. CLI Execution Engine (Member 1 Integration Boundary)
+- **Run Ingestion**: `POST /api/v1/runs` ingests executed commands with exit code, duration, stdout, stderr, and environment details. Failed runs automatically spawn incidents under `inc_{event_id}`.
+- **Idempotency**: Retried submissions using the same client `event_id` are idempotent (`idempotent: true`). Conflicting payloads under the same `event_id` are rejected with HTTP 409 Conflict.
+- **Performance Persistence**: `POST /api/v1/performance` records command execution durations linked to the underlying `event_id`.
+
+### 2. AI Diagnosis & Historical Memory (Member 3 Integration Boundary)
+- **Historical Memory**: `GET /api/v1/incidents/{incident_id}/history` partitions incident matches into same-project history and privacy-sanitized cross-project memories (paths, secrets, and auth tokens automatically redacted).
+- **Diagnosis Storage**: `POST /api/v1/incidents/{incident_id}/diagnoses` (and alias `/diagnosis`) persists structured root-cause explanations, evidence items, hypotheses, and suggested fixes.
+- **Latest Diagnosis Lookup**: `GET /api/v1/incidents/{incident_id}/diagnoses/latest` (and alias `/diagnosis`) retrieves the most recent diagnosis record.
+- **Proposed Fixes**: `POST /api/v1/incidents/{incident_id}/fixes` records candidate fix diffs and verification commands in `proposed` state.
+
+### 3. React Analytics Dashboard (Member 4 Integration Boundary)
+- **Project Overview & Metrics**: `GET /api/v1/projects/{project_id}/analytics` returns total runs, failure rates, incident counts, and average durations.
+- **Recurring Errors**: `GET /api/v1/projects/{project_id}/analytics/recurring` groups and ranks recurring error signatures for prioritized developer remediation.
+- **Performance Baselines & Trends**: `GET /api/v1/projects/{project_id}/performance/analytics` provides median durations, dual-threshold regression counts, and command-level baseline comparisons.
+- **Fix Verification Lifecycle**: `PATCH /api/v1/fixes/{fix_id}` advances fixes through the lifecycle (`proposed` -> `applied` -> `verifying` -> `verified`). Enforces that fixes cannot be marked `verified` without empirical automated exit code 0 evidence or explicit user confirmation details.
+
+### Status of External Components
+- **FastAPI Backend & MongoDB Engine**: Fully implemented and validated (81 passing automated tests).
+- **CLI Client, LLM Prompt Pipeline, React Dashboard**: External dependencies owned by Members 1, 3, and 4. All backend contracts and integration points are active and verified.

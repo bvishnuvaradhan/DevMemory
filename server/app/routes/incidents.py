@@ -69,6 +69,11 @@ async def get_incident_history_endpoint(
     response_model=ResponseEnvelope[DiagnosisResponse],
     summary="Store structured AI diagnosis for an incident",
 )
+@router.post(
+    "/{incident_id}/diagnoses",
+    response_model=ResponseEnvelope[DiagnosisResponse],
+    summary="Store structured AI diagnosis for an incident (plural alias)",
+)
 async def create_diagnosis_endpoint(
     incident_id: str,
     payload: DiagnosisCreate,
@@ -84,6 +89,11 @@ async def create_diagnosis_endpoint(
     "/{incident_id}/diagnosis",
     response_model=ResponseEnvelope[DiagnosisResponse],
     summary="Get the latest AI diagnosis for an incident",
+)
+@router.get(
+    "/{incident_id}/diagnoses/latest",
+    response_model=ResponseEnvelope[DiagnosisResponse],
+    summary="Get the latest AI diagnosis for an incident (explicit path alias)",
 )
 async def get_latest_diagnosis_endpoint(
     incident_id: str,
