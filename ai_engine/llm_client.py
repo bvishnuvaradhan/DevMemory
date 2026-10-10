@@ -117,34 +117,90 @@ class MockLLMClient:
         if self.custom_response is not None:
             return self.custom_response
 
-        # Extract event_id from user prompt if present
+        # Extract fields from user prompt
         event_id = "evt_mock_001"
-        match = re.search(r'Event ID:\s*([^\s\n]+)', user_prompt)
-        if match:
-            event_id = match.group(1).strip()
+        id_match = re.search(r"Event ID:\s*([^\s\n]+)", user_prompt)
+        if id_match:
+            event_id = id_match.group(1).strip()
+
+        cmd_match = re.search(r"Command Executed:\s*([^\n]+)", user_prompt)
+        command = cmd_match.group(1).strip() if cmd_match else "command"
+
+        code_match = re.search(r"Process Exit Code:\s*([^\n]+)", user_prompt)
+        exit_code = code_match.group(1).strip() if code_match else "1"
+
+        err_match = re.search(r"Error Message:\s*([^\n]+)", user_prompt)
+        error_msg = err_match.group(1).strip() if err_match else "execution failed"
+
+        stack_match = re.search(
+            r"Stack Trace:\s*([\s\S]*?)(?=\n===|\nIdentified Locations|\nSource Code|\Z)",
+            user_prompt,
+        )
+        stack_text = stack_match.group(1).strip() if stack_match else ""
+
+        locs_match = re.search(
+            r"Identified Locations:\s*([\s\S]*?)(?=\n===|\nSource Code|\Z)",
+            user_prompt,
+        )
+        locs_text = locs_match.group(1).strip() if locs_match else ""
+
+        # Grounded evidence
+        evidence = [
+            f"Command '{command}' terminated with exit code {exit_code}",
+            f"Error message: {error_msg}",
+        ]
+        if locs_text:
+            for line in locs_text.splitlines()[:2]:
+                if line.strip():
+                    evidence.append(f"Location: {line.strip('- ')}")
+        elif stack_text:
+            for line in stack_text.splitlines()[:2]:
+                if line.strip():
+                    evidence.append(f"Trace: {line.strip()}")
+
+        # Check for insufficient evidence conditions
+        is_insufficient = (
+            ("137" in exit_code or "143" in exit_code or "failed with exit code 1" in error_msg.lower())
+            and not stack_text
+            and not locs_text
+        )
+
+        if is_insufficient:
+            uncertainty_desc = (
+                f"Insufficient evidence: execution failed with exit code {exit_code} "
+                "without stack trace or source context; exact root cause cannot be established."
+            )
+            confidence = 0.40
+            likely_cause = f"Process terminated prematurely with code {exit_code} ({error_msg})."
+            summary = f"Abnormal process exit (code {exit_code}) with insufficient diagnostics."
+        else:
+            uncertainty_desc = (
+                "Diagnosis derived from observed command output, error messages, and call frames."
+            )
+            confidence = 0.85
+            likely_cause = f"Execution failed due to: {error_msg}."
+            summary = f"Execution failure during '{command}': {error_msg}."
 
         mock_payload = {
             "event_id": event_id,
-            "summary": "Mock diagnostic summary: Encountered unexpected execution failure.",
-            "likely_cause": "The error was triggered by an unresolved symbol or invalid runtime state.",
-            "evidence": [
-                "Command exited with non-zero exit code",
-                "Error message captured in diagnostic execution",
-            ],
+            "summary": summary,
+            "likely_cause": likely_cause,
+            "evidence": evidence,
             "hypotheses": [
-                "Dependency or configuration mismatch",
-                "Transient network or socket binding condition",
+                f"Potential root cause related to {error_msg.split(':')[0]}",
+                "Environment, configuration, or dependency discrepancy",
             ],
             "recommended_steps": [
-                "Verify dependencies and virtual environment configuration",
-                "Inspect recent diffs in the affected module",
-                "Re-run command in isolated test mode",
+                f"Inspect and address the root cause of {error_msg.split(':')[0]}",
+                "Verify required configuration variables and dependencies",
+                f"Re-execute '{command}' after applying updates",
             ],
-            "uncertainty_description": "Diagnosis synthesized by mock provider without live LLM inference.",
-            "confidence": 0.85,
+            "uncertainty_description": uncertainty_desc,
+            "confidence": confidence,
             "verification_steps": [
-                "Re-execute command with debugging flags enabled",
+                f"Re-run '{command}' in isolated test environment to confirm fix",
             ],
             "fix_status": "unverified",
         }
         return json.dumps(mock_payload)
+

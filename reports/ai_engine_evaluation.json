@@ -1,0 +1,595 @@
+{
+  "dataset_version": "2.0.0",
+  "metrics_summary": {
+    "total_scenarios": 52,
+    "passed_scenarios": 52,
+    "failed_scenarios": 0,
+    "unscorable_scenarios": 3,
+    "pass_rate_percent": 100.0,
+    "metrics": {
+      "RetrievalRecall@3": {
+        "value": 100.0,
+        "definition": "Proportion of scenarios with a target KB item where the target was present in the top-3 ranked results."
+      },
+      "RetrievalPrecision@1": {
+        "value": 100.0,
+        "definition": "Proportion of scenarios with a target KB item where the top-ranked result matched the target."
+      },
+      "FalsePositiveRate": {
+        "value": 0.0,
+        "definition": "Proportion of scenarios without a valid error target where unrelated items scored >= threshold."
+      },
+      "ProjectScopingAccuracy": {
+        "value": 100.0,
+        "definition": "Proportion of project queries where incidents from other projects were completely excluded from Level 2 memory."
+      },
+      "CrossProjectAuthAccuracy": {
+        "value": 100.0,
+        "definition": "Proportion of cross-project queries where server-side authorization and public policy were strictly enforced."
+      },
+      "SecretRedactionRate": {
+        "value": 100.0,
+        "definition": "Proportion of credential-bearing scenarios where all synthetic secrets were redacted before processing."
+      },
+      "UnverifiedStatusCompliance": {
+        "value": 100.0,
+        "definition": "Proportion of diagnosed scenarios where fix_status was correctly set to unverified (preventing premature verification claims)."
+      },
+      "EventIdPreservationRate": {
+        "value": 100.0,
+        "definition": "Proportion of diagnosed scenarios where output event_id strictly matches originating request event_id."
+      },
+      "RootCauseAccuracy": {
+        "value": 100.0,
+        "definition": "Proportion of scorable scenarios where diagnosis correctly identified an acceptable root cause category."
+      },
+      "EvidenceGroundingRate": {
+        "value": 100.0,
+        "definition": "Proportion of scenarios where diagnosis evidence retained essential diagnostic tokens from the input."
+      },
+      "UnsupportedClaimRate": {
+        "value": 0.0,
+        "definition": "Proportion of scenarios where unverified solutions were prematurely marked verified or ungrounded locations were hallucinated."
+      },
+      "InsufficientEvidenceHandlingRate": {
+        "value": 100.0,
+        "definition": "Proportion of scenarios with truncated or vague errors where uncertainty was explicitly acknowledged."
+      },
+      "FallbackResilienceRate": {
+        "value": 100.0,
+        "definition": "Proportion of simulated provider failure scenarios (timeouts, malformed JSON) where deterministic fallback succeeded."
+      }
+    },
+    "failure_pattern_breakdown": {
+      "1_incorrect_root_cause": 0,
+      "2_generic_or_irrelevant_recommendations": 0,
+      "3_missing_or_poor_retrieval": 0,
+      "4_unsupported_claims_or_hallucinated_verification": 0,
+      "5_insufficient_evidence_handling_failures": 0,
+      "6_provider_api_failures": 0,
+      "7_privacy_or_authorization_failures": 0
+    }
+  },
+  "scenario_results": [
+    {
+      "scenario_id": "scn_01_py_mod_not_found",
+      "category": "python_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_py_mod_not_found",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_02_py_circular_import",
+      "category": "python_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_py_import_err",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_03_py_none_attribute",
+      "category": "python_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_py_attr_err",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_04_py_type_mismatch",
+      "category": "python_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_py_type_err",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_05_py_missing_key",
+      "category": "python_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_py_key_err",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_06_py_file_missing",
+      "category": "python_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_py_file_not_found",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_07_js_undef_prop",
+      "category": "js_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_js_type_read_prop",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_08_js_map_not_function",
+      "category": "js_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_js_type_map_not_func",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_09_node_mod_missing",
+      "category": "js_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_node_mod_not_found",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_10_node_conn_refused",
+      "category": "network",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_node_econnrefused",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_11_cfg_missing_env",
+      "category": "configuration",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_cfg_missing_env",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_12_tst_assert_failure",
+      "category": "testing",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_tst_assert_err",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_13_net_port_in_use",
+      "category": "network",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_net_eaddrinuse",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_14_bld_ver_conflict",
+      "category": "dependency",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_bld_pkg_ver_mismatch",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_15_similar_err_diff_cause_a",
+      "category": "similar_different_cause",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_py_key_err",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_16_similar_err_diff_cause_b",
+      "category": "similar_different_cause",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_py_key_err",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_17_insufficient_evidence",
+      "category": "insufficient_evidence",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.4,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_18_unknown_error_format",
+      "category": "unknown_format",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": true
+    },
+    {
+      "scenario_id": "scn_19_misleading_history",
+      "category": "misleading_history",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "inc_hist_01_cache",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_20_secret_api_key_in_command",
+      "category": "privacy_security",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_21_secret_bearer_in_log",
+      "category": "privacy_security",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_22_secret_db_pass_in_error",
+      "category": "privacy_security",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_23_prompt_injection_in_trace",
+      "category": "privacy_security",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.9,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_24_cross_project_private_isolation",
+      "category": "privacy_security",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_js_type_read_prop",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_25_cross_project_authorized_sanitization",
+      "category": "privacy_security",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "inc_hist_03_public_shared",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_26_py_pkg_dep_conflict",
+      "category": "dependency",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_bld_pkg_ver_mismatch",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_27_py_poetry_lock_stale",
+      "category": "dependency",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_28_js_async_unhandled_rejection",
+      "category": "js_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_29_js_syntax_unexpected_token",
+      "category": "js_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_30_js_reference_not_defined",
+      "category": "js_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_31_cfg_malformed_yaml",
+      "category": "configuration",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_32_cfg_port_non_numeric",
+      "category": "configuration",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_33_py_syntax_missing_colon",
+      "category": "python_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_34_py_indentation_error",
+      "category": "python_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_35_py_zero_division",
+      "category": "python_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_36_py_recursion_error",
+      "category": "python_runtime",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_37_build_tsc_type_check_failure",
+      "category": "build",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_38_tst_timeout_exceeded",
+      "category": "testing",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_39_file_permission_denied",
+      "category": "filesystem",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_40_path_windows_backslash_escape",
+      "category": "filesystem",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_41_similar_econnrefused_wrong_port",
+      "category": "network",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_node_econnrefused",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_42_similar_econnrefused_docker_bind",
+      "category": "network",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_node_econnrefused",
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_43_insufficient_generic_nonzero_exit",
+      "category": "insufficient_evidence",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.4,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_44_insufficient_sigterm_external",
+      "category": "insufficient_evidence",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.4,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_45_unseen_rust_panic",
+      "category": "unknown_format",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": true
+    },
+    {
+      "scenario_id": "scn_46_unseen_go_panic",
+      "category": "unknown_format",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": true
+    },
+    {
+      "scenario_id": "scn_47_misleading_log_red_herring",
+      "category": "misleading_history",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_48_unsupported_proposed_fix",
+      "category": "misleading_history",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_49_privacy_env_assignment",
+      "category": "privacy_security",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_50_provider_groq_timeout",
+      "category": "provider_failure",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_py_mod_not_found",
+      "confidence": 0.7,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_51_provider_groq_malformed_json",
+      "category": "provider_failure",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_js_type_read_prop",
+      "confidence": 0.7,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_52_provider_groq_unwarranted_verified",
+      "category": "provider_failure",
+      "passed": true,
+      "failures": [],
+      "top_match_id": "kb_py_key_err",
+      "confidence": 0.95,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    }
+  ]
+}

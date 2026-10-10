@@ -1,7 +1,7 @@
 """Quality metrics calculation with explicit definitions and denominators for DevMemory."""
 
-from dataclasses import dataclass
-from typing import Any, Dict, List
+from dataclasses import dataclass, field
+from typing import Any, Dict
 
 
 @dataclass(frozen=True)
@@ -22,16 +22,28 @@ class EvaluationMetrics:
     unverified_status_compliance: float  # fix_status is unverified / all cases
     event_id_preservation_rate: float  # event_id strictly preserved / all cases
 
+    # Diagnosis Quality & Grounding
+    root_cause_accuracy: float  # Diagnosed cause aligns with expected category / scorable cases
+    evidence_grounding_rate: float  # Evidence contains relevant error tokens / cases with tokens
+    unsupported_claim_rate: float  # False verification or hallucinated claims / all cases
+    insufficient_evidence_handling_rate: float  # Acknowledges uncertainty / insufficient cases
+    fallback_resilience_rate: float  # Successful fallback on provider failure / provider failure cases
+
     # Scenario Counts
     total_scenarios: int
     passed_scenarios: int
     failed_scenarios: int
+    unscorable_scenarios: int
+
+    # Failure Pattern Breakdown (Task 5)
+    failure_pattern_counts: Dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "total_scenarios": self.total_scenarios,
             "passed_scenarios": self.passed_scenarios,
             "failed_scenarios": self.failed_scenarios,
+            "unscorable_scenarios": self.unscorable_scenarios,
             "pass_rate_percent": round((self.passed_scenarios / self.total_scenarios) * 100, 2)
             if self.total_scenarios > 0
             else 0.0,
@@ -68,5 +80,26 @@ class EvaluationMetrics:
                     "value": round(self.event_id_preservation_rate * 100, 2),
                     "definition": "Proportion of diagnosed scenarios where output event_id strictly matches originating request event_id.",
                 },
+                "RootCauseAccuracy": {
+                    "value": round(self.root_cause_accuracy * 100, 2),
+                    "definition": "Proportion of scorable scenarios where diagnosis correctly identified an acceptable root cause category.",
+                },
+                "EvidenceGroundingRate": {
+                    "value": round(self.evidence_grounding_rate * 100, 2),
+                    "definition": "Proportion of scenarios where diagnosis evidence retained essential diagnostic tokens from the input.",
+                },
+                "UnsupportedClaimRate": {
+                    "value": round(self.unsupported_claim_rate * 100, 2),
+                    "definition": "Proportion of scenarios where unverified solutions were prematurely marked verified or ungrounded locations were hallucinated.",
+                },
+                "InsufficientEvidenceHandlingRate": {
+                    "value": round(self.insufficient_evidence_handling_rate * 100, 2),
+                    "definition": "Proportion of scenarios with truncated or vague errors where uncertainty was explicitly acknowledged.",
+                },
+                "FallbackResilienceRate": {
+                    "value": round(self.fallback_resilience_rate * 100, 2),
+                    "definition": "Proportion of simulated provider failure scenarios (timeouts, malformed JSON) where deterministic fallback succeeded.",
+                },
             },
+            "failure_pattern_breakdown": self.failure_pattern_counts,
         }

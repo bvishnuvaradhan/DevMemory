@@ -29,8 +29,8 @@ GENERIC_API_KEY_REGEX = re.compile(r"\b(?:gsk|sk|key)_[A-Za-z0-9_\-]{20,}\b")
 
 # Key-value secret assignments: e.g. api_key="secret", password: '123'
 KEY_VALUE_SECRET_REGEX = re.compile(
-    r'(?i)\b(api[_-]?key|secret[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|'
-    r'private[_-]?key|password|passwd|pwd)\b\s*([:=])\s*(["\']?)([^"\'\s,;]{6,})\3'
+    r'(?i)\b([A-Za-z0-9_]*(?:api[_-]?key|secret[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|'
+    r'private[_-]?key|password|passwd|pwd)[A-Za-z0-9_]*)\b\s*([:=])\s*(["\']?)([^"\'\s,;]{6,})\3'
 )
 
 # Password in connection URLs: http(s)://user:password@host
