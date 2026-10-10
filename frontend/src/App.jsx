@@ -6,6 +6,10 @@ import DemoBanner from './components/common/DemoBanner';
 import GlobalDashboard from './pages/GlobalDashboard';
 import ProjectWorkspace from './pages/ProjectWorkspace';
 import EventsHistory from './pages/EventsHistory';
+import CommandRunsPage from './pages/CommandRunsPage';
+import ErrorsDiagnosesPage from './pages/ErrorsDiagnosesPage';
+import VerifiedFixesPage from './pages/VerifiedFixesPage';
+import PerformanceLabPage from './pages/PerformanceLabPage';
 import { fetchProjects } from './api/devmemoryApi';
 
 export default function App() {
@@ -66,10 +70,10 @@ export default function App() {
               path="/"
               element={<GlobalDashboard onDataLoaded={handleDataLoaded} />}
             />
-            <Route path="/runs" element={<GlobalDashboard onDataLoaded={handleDataLoaded} />} />
-            <Route path="/incidents" element={<GlobalDashboard onDataLoaded={handleDataLoaded} />} />
-            <Route path="/fixes" element={<GlobalDashboard onDataLoaded={handleDataLoaded} />} />
-            <Route path="/performance" element={<GlobalDashboard onDataLoaded={handleDataLoaded} />} />
+            <Route path="/runs" element={<CommandRunsPage />} />
+            <Route path="/incidents" element={<ErrorsDiagnosesPage />} />
+            <Route path="/fixes" element={<VerifiedFixesPage />} />
+            <Route path="/performance" element={<PerformanceLabPage />} />
             <Route path="/events" element={<EventsHistory />} />
             <Route path="/projects/:projectId/*" element={<ProjectWorkspace />} />
             <Route

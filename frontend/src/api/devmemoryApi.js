@@ -346,4 +346,159 @@ export async function fetchProjectEvents(projectId) {
   };
 }
 
+export async function fetchAllRuns() {
+  try {
+    if (!FORCE_MOCK) {
+      const res = await fetch(`${BASE_URL}/runs`);
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          data: Array.isArray(data) ? data.map(normalizeRun) : [],
+          isMock: false,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[DevMemory API] Falling back to mock runs:', err.message);
+  }
+
+  return {
+    data: MOCK_RECENT_RUNS.map(normalizeRun),
+    isMock: true,
+  };
+}
+
+export async function fetchAllIncidents() {
+  try {
+    if (!FORCE_MOCK) {
+      const res = await fetch(`${BASE_URL}/incidents`);
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          data: Array.isArray(data) ? data.map(normalizeIncident) : [],
+          isMock: false,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[DevMemory API] Falling back to mock all incidents:', err.message);
+  }
+
+  return {
+    data: MOCK_INCIDENTS.map(normalizeIncident),
+    isMock: true,
+  };
+}
+
+export async function fetchAllFixes() {
+  try {
+    if (!FORCE_MOCK) {
+      const res = await fetch(`${BASE_URL}/fixes`);
+      if (res.ok) {
+        const data = await res.json();
+        return { data: Array.isArray(data) ? data : [], isMock: false };
+      }
+    }
+  } catch (err) {
+    console.warn('[DevMemory API] Falling back to mock fixes:', err.message);
+  }
+
+  const combinedFixes = [
+    {
+      id: 'fix_01',
+      projectId: 'proj_auth_service',
+      projectName: 'auth-service',
+      errorType: 'ExpiredSignatureError',
+      solutionSummary: 'Added leeway window (leeway=30s) to jwt.decode() and refresh token clock skew tolerance',
+      verificationMethod: 'devmemory run -- pytest tests/test_token_refresh.py -k test_clock_skew',
+      testResult: '3 passed, 0 failed in 0.42s (exit code: 0)',
+      status: 'VERIFIED',
+      verifiedAt: '2026-10-09T16:45:00Z',
+      recurrenceCountAfterFix: 0,
+      author: 'AI Recommendation + Developer Verification',
+      relatedIncidentId: 'inc_auth_01',
+    },
+    {
+      id: 'fix_02',
+      projectId: 'proj_data_pipeline',
+      projectName: 'data-pipeline',
+      errorType: 'OutOfMemoryError (CUDA)',
+      solutionSummary: 'Implemented gradient checkpointing and dynamic batch sizing with torch.cuda.empty_cache() on fallback',
+      verificationMethod: 'devmemory run -- python -m pipeline.preprocess --eval-batch-memory',
+      testResult: '1 passed in 2.14s (exit code: 0)',
+      status: 'VERIFIED',
+      verifiedAt: '2026-10-09T14:10:00Z',
+      recurrenceCountAfterFix: 0,
+      author: 'AI Recommendation + Developer Verification',
+      relatedIncidentId: 'inc_cuda_02',
+    },
+    {
+      id: 'fix_03',
+      projectId: 'proj_payment_worker',
+      projectName: 'payment-worker',
+      errorType: 'StripeIdempotencyKeyError',
+      solutionSummary: 'Scoped idempotency keys with SHA-256 payload digest rather than raw user_id timestamp',
+      verificationMethod: 'devmemory run -- npm test -- tests/idempotency.test.ts',
+      testResult: '5 passed, 0 failed in 0.38s (exit code: 0)',
+      status: 'VERIFIED',
+      verifiedAt: '2026-10-08T19:30:00Z',
+      recurrenceCountAfterFix: 0,
+      author: 'Cross-Project Memory Hit (from checkout-web) + Verified',
+      relatedIncidentId: 'inc_worker_03',
+    },
+    {
+      id: 'fix_04',
+      projectId: 'proj_data_pipeline',
+      projectName: 'data-pipeline',
+      errorType: 'OutOfMemoryError (CUDA)',
+      solutionSummary: 'Add torch.inference_mode() and detach tensor features to CPU RAM immediately',
+      verificationMethod: 'devmemory run -- python -m pipeline.preprocess --eval-batch-memory',
+      testResult: 'Awaiting execution of verification command',
+      status: 'PENDING',
+      verifiedAt: null,
+      recurrenceCountAfterFix: 0,
+      author: 'AI Recommendation',
+      relatedIncidentId: 'inc_cuda_02',
+    },
+    {
+      id: 'fix_05',
+      projectId: 'proj_payment_worker',
+      projectName: 'payment-worker',
+      errorType: 'SIGKILL (Container Out of Memory)',
+      solutionSummary: 'Increased container memory limit to 512MB and added BullMQ concurrency cap',
+      verificationMethod: 'devmemory run -- npm run test:load',
+      testResult: 'Process spiked again under 10k messages/sec surge (exit code: 137)',
+      status: 'RECURRING',
+      verifiedAt: null,
+      recurrenceCountAfterFix: 2,
+      author: 'AI Recommendation + Manual Adjustments',
+      relatedIncidentId: 'inc_sys_04',
+    },
+  ];
+
+  return { data: combinedFixes, isMock: true };
+}
+
+export async function fetchAllPerformance() {
+  try {
+    if (!FORCE_MOCK) {
+      const res = await fetch(`${BASE_URL}/analytics/performance`);
+      if (res.ok) {
+        const data = await res.json();
+        return { data, isMock: false };
+      }
+    }
+  } catch (err) {
+    console.warn('[DevMemory API] Falling back to mock performance:', err.message);
+  }
+
+  return {
+    data: {
+      trend: MOCK_PERFORMANCE_TREND,
+      byProject: MOCK_PERFORMANCE_BY_PROJECT,
+    },
+    isMock: true,
+  };
+}
+
 

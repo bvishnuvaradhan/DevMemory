@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Terminal, CheckCircle2, XCircle, Clock, FileCode2 } from 'lucide-react';
 import Badge from '../common/Badge';
 
@@ -10,7 +11,12 @@ export default function RecentRunsTable({ runs = [] }) {
           <Terminal className="h-4 w-4 text-brand-500" />
           <h3 className="text-sm font-semibold text-slate-900 font-mono">Recent Command Runs</h3>
         </div>
-        <span className="text-xs font-mono text-slate-500">Captured via CLI runner</span>
+        <Link
+          to="/runs"
+          className="text-xs font-mono text-indigo-600 hover:text-indigo-800 font-semibold transition-colors flex items-center gap-1"
+        >
+          <span>View All Runs →</span>
+        </Link>
       </div>
 
       <div className="overflow-x-auto">
@@ -50,9 +56,12 @@ export default function RecentRunsTable({ runs = [] }) {
                     </div>
                   </td>
                   <td className="px-5 py-3.5 whitespace-nowrap text-slate-700">
-                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-slate-700 border border-slate-200/60 font-medium">
+                    <Link
+                      to={`/projects/${run.projectId}`}
+                      className="rounded-md bg-slate-100 px-2 py-0.5 text-slate-700 hover:bg-brand-50 hover:text-brand-600 hover:border-brand-200 border border-slate-200/60 font-medium transition-colors"
+                    >
                       {run.projectName}
-                    </span>
+                    </Link>
                   </td>
                   <td className="px-5 py-3.5 whitespace-nowrap">
                     <Badge variant={isSuccess ? 'success' : 'danger'} size="xs">

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { AlertTriangle, Repeat, Layers } from 'lucide-react';
 import Badge from '../common/Badge';
 
@@ -10,9 +11,17 @@ export default function RecurringErrorsWidget({ recurringErrors = [] }) {
           <AlertTriangle className="h-4 w-4 text-amber-500" />
           <h3 className="text-sm font-semibold text-slate-900 font-mono">Recurring Errors</h3>
         </div>
-        <Badge variant="warning" size="xs">
-          {recurringErrors.length} Detected
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="warning" size="xs">
+            {recurringErrors.length} Detected
+          </Badge>
+          <Link
+            to="/incidents"
+            className="text-xs font-mono text-indigo-600 hover:text-indigo-800 font-semibold transition-colors"
+          >
+            All Incidents →
+          </Link>
+        </div>
       </div>
 
       <div className="mt-4 space-y-3">

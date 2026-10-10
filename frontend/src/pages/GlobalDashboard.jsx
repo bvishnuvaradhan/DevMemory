@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -159,9 +159,12 @@ export default function GlobalDashboard({ onDataLoaded }) {
                 Cross-Project Execution Time Pulse
               </h3>
             </div>
-            <span className="text-xs font-mono text-slate-500">
-              Global Platform Trend (ms)
-            </span>
+            <Link
+              to="/performance"
+              className="text-xs font-mono text-indigo-600 hover:text-indigo-800 font-semibold transition-colors flex items-center gap-1"
+            >
+              <span>Open Performance Lab →</span>
+            </Link>
           </div>
           <div className="h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">

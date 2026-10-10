@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { CheckCircle2, ShieldCheck, Terminal, Sparkles } from 'lucide-react';
 import Badge from '../common/Badge';
 
@@ -10,9 +11,17 @@ export default function FixOutcomesWidget({ verifiedFixes = [] }) {
           <ShieldCheck className="h-4 w-4 text-emerald-600" />
           <h3 className="text-sm font-semibold text-slate-900 font-mono">Verified Fix Bank</h3>
         </div>
-        <span className="text-[11px] font-mono text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 font-medium">
-          Proven Fixes Only
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-mono text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 font-medium">
+            Proven Fixes Only
+          </span>
+          <Link
+            to="/fixes"
+            className="text-xs font-mono text-indigo-600 hover:text-indigo-800 font-semibold transition-colors"
+          >
+            All Fixes →
+          </Link>
+        </div>
       </div>
 
       <div className="mt-4 space-y-3">
