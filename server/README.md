@@ -1,6 +1,6 @@
 # DevMemory — Backend Service
 
-The core FastAPI backend and MongoDB persistence layer for DevMemory, providing data ingestion, incident tracking, multi-level memory storage, and developer troubleshooting analytics.
+The core FastAPI backend and MongoDB persistence layer for DevMemory, providing data ingestion, incident tracking, multi-level memory storage, AI diagnosis persistence, verified-fix tracking, and troubleshooting analytics.
 
 ## Prerequisites
 
@@ -62,7 +62,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 ---
 
-## Architecture & Data Contracts (Phases 1, 2, & 3)
+## Architecture & Data Contracts (Phases 1, 2, 3, & 4)
 
 ### Standard Response Envelope
 
@@ -82,49 +82,47 @@ On error, `success` is `false`, `data` is `null`, and `error` contains a clear d
 {
   "success": false,
   "data": null,
-  "error": "Project with ID 'proj_shopapp' already exists."
+  "error": "Cannot mark fix as verified without supporting verification evidence."
 }
 ```
 
 ---
 
-## Idempotency and Event Deduplication
+## Distinction: AI Recommendations vs. Verified Fixes
 
-1. **Stable Event IDs**: Each CLI run generates a unique `event_id` (e.g. UUIDv4 or prefixed token).
-2. **Atomic Ingestion**: The backend utilizes a unique MongoDB index on `command_runs.event_id`.
-3. **Retry Handling**: If the same `event_id` is submitted with matching `project_id`, `command`, and `exit_code`, the backend detects the duplicate and returns the existing run with HTTP 200 and `"idempotent": true`. The document count is not incremented.
-4. **Conflict Detection**: If an `event_id` is reused with conflicting data (different command, project, or exit code), the server rejects the request with **HTTP 409 Conflict**.
-5. **Incident Deduplication**: When a failed run (`exit_code != 0`) has error context, an incident is created idempotently under `inc_{event_id}`. Duplicate submissions of the run will never create duplicate incidents.
+A fundamental architectural principle of DevMemory is that **an AI diagnosis recommendation is a hypothesis, not a proven fix**:
 
----
-
-## Error Signatures & Grouping
-
-Every incident receives a normalized, deterministic `error_signature`:
-- Hexadecimal addresses (`0x...`) $\to$ `<hex>`
-- Filesystem paths (Windows and POSIX) $\to$ `<path>`
-- Trailing contextual file phrases (`in <path>`, `at <path>`) $\to$ stripped
-- Contextual location phrases (`line 42`, `col 10`) $\to$ `<loc>` and stripped
-- Dynamic tokens / numbers (`(run 0)`, `timeout 30`) $\to$ `<num>`
-- Auth headers / keys (`Bearer ...`, `ghp_...`, `sk-...`) $\to$ `<token>`
-
-Example signature: `sig_TypeError_4f8b2c1a9e3d`
-
-### Limitations of Deterministic Fingerprinting
-- **Exact Semantics**: Deterministic signatures group structurally and syntactically equivalent errors without requiring an external vector search engine.
-- **Different Error Types with Same Cause**: Different exceptions (e.g. `FileNotFoundError` vs `PermissionError`) will receive distinct signatures even if related to the same missing file. Semantic grouping across different exception classes is deferred to Phase 4 (AI diagnosis module).
+1. **AI Diagnoses**: Represent AI-generated explanations and suggested fixes (`POST /incidents/{incident_id}/diagnosis`). They may include speculative hypotheses, confidence scores, and historical references. They are stored in `diagnoses` and marked as hypotheses.
+2. **Proposed Fixes**: Developers create proposed fix records in `fix_outcomes` with initial status `proposed`.
+3. **Verification Evidence**: A proposed fix **cannot** be marked as `verified` simply because an LLM recommended it or a user asserts it works. A fix requires recorded empirical evidence:
+   - **Automated Command Execution**: Executing a verification command with an actual exit code of `0` (e.g. `pytest`, `npm test`).
+   - **Explicit User Confirmation**: Documented manual confirmation clearly distinguished from automated verification (`verification_source: "user_confirmation"`).
 
 ---
 
-## Cross-Project Privacy Controls & Limitations
+## Fix Status Transition State Machine
 
-When retrieving historical incidents across project boundaries (`GET /api/v1/incidents/{incident_id}/history`):
-- **Sanitized Fields**: Only `incident_id`, `project_id`, `error_type`, `error_signature`, `error_message` (sanitized), and `created_at` are disclosed.
-- **Redaction**:
-  - `source_snippet` and raw code lines are **never** included in cross-project responses.
-  - `file_path`, line, and column numbers are **never** included in cross-project responses.
-  - User home paths (`C:\Users\<user>\...` or `/home/<user>/...`), auth tokens, passwords, and IP addresses are automatically redacted to `<USER_HOME>`, `<REDACTED>`, and `<HOST:PORT>`.
-- **Known Authorization Limitations**: In the current MVP phase, cross-project sharing retrieves sanitized error summaries based on error signature matching across all registered projects in the shared MongoDB database. Multi-tenant workspace RBAC and fine-grained team permission flags are planned for subsequent production releases.
+Fix records follow an enforced state machine:
+
+```text
+               ┌───────────► applied ───────────┐
+               │                                │
+               │                                ▼
+proposed ──────┼────────────────────────► verifying ─────(with evidence)───► verified
+               │                                │                                │
+               │                                ▼                                ▼
+               └───────────► failed ◄───────────┴──────────────────────────── reverted
+```
+
+- **Allowed transitions**:
+  - `proposed` $\to$ `applied`, `verifying`, `failed`, `reverted`
+  - `applied` $\to$ `verifying`, `failed`, `reverted`
+  - `verifying` $\to$ `verified` (*requires evidence*), `failed`, `reverted`
+  - `verified` $\to$ `reverted`, `failed`
+  - `failed` $\to$ `verifying`, `proposed`, `reverted`
+  - `reverted` $\to$ `proposed`, `verifying`
+- **Enforcement**: Invalid status transitions return **HTTP 409 Conflict**. Attempting to verify without evidence returns **HTTP 422**.
+- **Timestamps**: `verified_at` is set only when transitioning to `verified` with valid evidence, and is cleared to `null` if the fix is subsequently reverted or failed.
 
 ---
 
@@ -147,8 +145,8 @@ When retrieving historical incidents across project boundaries (`GET /api/v1/inc
 | `GET` | `/api/v1/projects/{project_id}` | 200 / 404 | Retrieve project details |
 | `GET` | `/api/v1/projects/{project_id}/runs` | 200 / 404 | List project runs (supports `status=success\|failure`, `limit`, `skip`) |
 | `GET` | `/api/v1/projects/{project_id}/incidents` | 200 / 404 | List project incidents (paginated) |
-| `GET` | `/api/v1/projects/{project_id}/analytics/recurring` | 200 / 404 | **MongoDB Aggregation**: Top recurring errors grouped by error signature |
-| `GET` | `/api/v1/projects/{project_id}/analytics` | 200 / 404 | High-level summary metrics (runs, success/fail counts, duration) |
+| `GET` | `/api/v1/projects/{project_id}/analytics/recurring` | 200 / 404 | Top recurring errors grouped by error signature |
+| `GET` | `/api/v1/projects/{project_id}/analytics` | 200 / 404 | Summary metrics (runs, success/fail counts, duration) |
 
 ### Command Runs
 
@@ -157,94 +155,97 @@ When retrieving historical incidents across project boundaries (`GET /api/v1/inc
 | `POST` | `/api/v1/runs` | 201 / 200 / 404 / 409 / 422 | Ingest command run event (idempotent) |
 | `GET` | `/api/v1/runs/{event_id}` | 200 / 404 | Retrieve command run by event ID |
 
-### Incidents & Memory Retrieval
+### Incidents, Memory, & Diagnoses
 
 | Method | Path | Status | Description |
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/v1/incidents` | 201 / 404 / 422 | Register an incident explicitly |
 | `GET` | `/api/v1/incidents/{incident_id}` | 200 / 404 | Retrieve incident details |
-| `GET` | `/api/v1/incidents/{incident_id}/history` | 200 / 404 | **Memory Retrieval**: Same-project vs privacy-sanitized cross-project historical incidents |
+| `GET` | `/api/v1/incidents/{incident_id}/history` | 200 / 404 | Same-project vs privacy-sanitized cross-project historical incidents |
+| `POST` | `/api/v1/incidents/{incident_id}/diagnosis` | 201 / 200 / 404 / 422 | Store structured AI diagnosis for incident (idempotent) |
+| `GET` | `/api/v1/incidents/{incident_id}/diagnosis` | 200 / 404 | Retrieve latest diagnosis for incident |
+| `GET` | `/api/v1/incidents/{incident_id}/diagnoses` | 200 / 404 | List paginated diagnosis history for incident |
+| `POST` | `/api/v1/incidents/{incident_id}/fixes` | 201 / 404 / 422 | Register proposed fix for incident |
+| `GET` | `/api/v1/incidents/{incident_id}/fixes` | 200 / 404 | List paginated fixes for incident |
+
+### Fix Outcomes
+
+| Method | Path | Status | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/v1/fixes/{fix_id}` | 200 / 404 | Retrieve fix details by ID |
+| `PATCH` | `/api/v1/fixes/{fix_id}` | 200 / 404 / 409 / 422 | Update fix status and attach verification evidence |
 
 ---
 
-## Response Examples (Phase 3)
+## Response Examples (Phase 4)
 
-### Recurring Error Analytics (`GET /api/v1/projects/{project_id}/analytics/recurring`)
-
-```json
-{
-  "success": true,
-  "data": {
-    "items": [
-      {
-        "error_signature": "sig_TypeError_4f8b2c1a9e3d",
-        "error_type": "TypeError",
-        "error_message": "data.map is not a function",
-        "occurrence_count": 5,
-        "latest_occurrence": "2026-10-10T12:30:00Z"
-      }
-    ],
-    "total_groups": 1
-  },
-  "error": null
-}
-```
-
-### Project Summary Analytics (`GET /api/v1/projects/{project_id}/analytics`)
+### Store AI Diagnosis (`POST /api/v1/incidents/{incident_id}/diagnosis`)
 
 ```json
 {
   "success": true,
   "data": {
+    "diagnosis_id": "diag_01025345b481",
+    "incident_id": "inc_evt_demo_001",
     "project_id": "proj_shopapp",
-    "total_runs": 12,
-    "successful_runs": 8,
-    "failed_runs": 4,
-    "total_incidents": 4,
-    "distinct_error_signatures": 2,
-    "recent_incidents_24h": 4,
-    "average_duration_ms": 1150
+    "summary": "Attempted to divide integer by zero in calculate_ratio()",
+    "hypotheses": [
+      {
+        "cause": "Denominator variable total_count was 0 due to empty queryset",
+        "is_observed": true,
+        "details": "Observed total_count = 0 in local scope before line 10"
+      }
+    ],
+    "suggested_fix": "Add guard check: if total_count == 0: return 0.0",
+    "matched_memory": [
+      {
+        "source_id": "kb_python_zerodiv",
+        "source_type": "knowledge_base",
+        "relevance_reason": "Standard Python division by zero guard pattern"
+      }
+    ],
+    "evidence": ["ZeroDivisionError raised at calculator.py:10"],
+    "confidence": 0.95,
+    "source": "groq/llama-3.3-70b-versatile",
+    "created_at": "2026-10-10T12:00:00Z",
+    "idempotent": false
   },
   "error": null
 }
 ```
 
-### Cross-Project Incident History (`GET /api/v1/incidents/{incident_id}/history`)
+### Verify Fix Outcome (`PATCH /api/v1/fixes/{fix_id}`)
 
+**Request**:
+```json
+{
+  "status": "verified",
+  "verification_method": "command",
+  "verification_command": "pytest tests/test_calculator.py",
+  "verification_exit_code": 0,
+  "verification_source": "test_runner",
+  "verification_details": "5 passed in 0.22s"
+}
+```
+
+**Response (HTTP 200 OK)**:
 ```json
 {
   "success": true,
   "data": {
-    "current_incident_id": "inc_evt_demo_001",
-    "error_signature": "sig_TypeError_4f8b2c1a9e3d",
-    "same_project_matches": [
-      {
-        "incident_id": "inc_evt_demo_000",
-        "event_id": "evt_demo_000",
-        "project_id": "proj_shopapp",
-        "error_type": "TypeError",
-        "error_message": "data.map is not a function",
-        "error_signature": "sig_TypeError_4f8b2c1a9e3d",
-        "file_path": "src/App.jsx",
-        "line": 24,
-        "column": 8,
-        "source_snippet": "data.map(item => item.name)",
-        "diagnosis_status": "pending",
-        "created_at": "2026-10-10T10:00:00Z"
-      }
-    ],
-    "cross_project_matches": [
-      {
-        "incident_id": "inc_evt_other_99",
-        "project_id": "proj_billing",
-        "error_type": "TypeError",
-        "error_signature": "sig_TypeError_4f8b2c1a9e3d",
-        "error_message": "data.map is not a function in <PATH>\\view.js",
-        "created_at": "2026-10-09T18:00:00Z",
-        "diagnosis_summary": null,
-        "fix_status": null
-      }
-    ]
+    "fix_id": "fix_d265c73d82fb",
+    "incident_id": "inc_evt_demo_001",
+    "project_id": "proj_shopapp",
+    "description": "Add guard check in calculate_ratio()",
+    "status": "verified",
+    "verification_method": "command",
+    "verification_command": "pytest tests/test_calculator.py",
+    "verification_exit_code": 0,
+    "verification_details": "5 passed in 0.22s",
+    "verification_source": "test_runner",
+    "verified_at": "2026-10-10T12:15:30Z",
+    "created_at": "2026-10-10T12:05:00Z",
+    "updated_at": "2026-10-10T12:15:30Z"
   },
   "error": null
 }
@@ -265,5 +266,10 @@ All indexes are verified and initialized idempotently during startup via `init_i
 | `incidents` | `idx_incidents_incident_id_unique` | `{ incident_id: 1 }` (unique) | Single incident lookup |
 | `incidents` | `idx_incidents_project_event_unique` | `{ project_id: 1, event_id: 1 }` (unique, partial) | Prevents duplicate incidents for the same run |
 | `incidents` | `idx_incidents_project_created_at` | `{ project_id: 1, created_at: -1 }` | Paginated incident listing by project |
-| `incidents` | `idx_incidents_project_signature_created` | `{ project_id: 1, error_signature: 1, created_at: -1 }` | **MongoDB Aggregation**: Fast recurring error grouping and same-project history |
-| `incidents` | `idx_incidents_signature_created` | `{ error_signature: 1, created_at: -1 }` | **Cross-Project Memory**: Retrieval across all projects by signature |
+| `incidents` | `idx_incidents_project_signature_created` | `{ project_id: 1, error_signature: 1, created_at: -1 }` | Recurring error grouping and same-project history |
+| `incidents` | `idx_incidents_signature_created` | `{ error_signature: 1, created_at: -1 }` | Cross-Project Memory retrieval across all projects |
+| `diagnoses` | `idx_diagnoses_id_unique` | `{ diagnosis_id: 1 }` (unique) | Unique diagnosis retrieval and idempotency |
+| `diagnoses` | `idx_diagnoses_incident_created` | `{ incident_id: 1, created_at: -1 }` | Latest diagnosis lookup and paginated history |
+| `fix_outcomes` | `idx_fixes_id_unique` | `{ fix_id: 1 }` (unique) | Unique fix lookup and patching |
+| `fix_outcomes` | `idx_fixes_project_incident_created` | `{ project_id: 1, incident_id: 1, created_at: -1 }` | Project-scoped fix queries |
+| `fix_outcomes` | `idx_fixes_incident_created` | `{ incident_id: 1, created_at: -1 }` | Paginated fixes for an incident |

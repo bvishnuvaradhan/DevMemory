@@ -12,6 +12,7 @@ from pymongo.errors import PyMongoError
 from app.config import get_settings
 from app.db.indexes import init_indexes
 from app.db.mongo import mongo_manager
+from app.routes.fixes import router as fixes_router
 from app.routes.health import router as health_router
 from app.routes.incidents import router as incidents_router
 from app.routes.projects import router as projects_router
@@ -53,7 +54,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="DevMemory API",
         description="Persistent developer memory and troubleshooting platform backend API.",
-        version="0.2.0",
+        version="0.4.0",
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
@@ -142,6 +143,7 @@ def create_app() -> FastAPI:
     app.include_router(projects_router, prefix="/api/v1")
     app.include_router(runs_router, prefix="/api/v1")
     app.include_router(incidents_router, prefix="/api/v1")
+    app.include_router(fixes_router, prefix="/api/v1")
 
     return app
 

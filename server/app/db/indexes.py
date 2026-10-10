@@ -50,6 +50,38 @@ INCIDENTS_VALIDATOR = {
     }
 }
 
+DIAGNOSES_VALIDATOR = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["diagnosis_id", "incident_id", "project_id", "summary", "created_at"],
+        "properties": {
+            "diagnosis_id": {"bsonType": "string"},
+            "incident_id": {"bsonType": "string"},
+            "project_id": {"bsonType": "string"},
+            "summary": {"bsonType": "string"},
+            "created_at": {"bsonType": "date"},
+        },
+    }
+}
+
+FIX_OUTCOMES_VALIDATOR = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["fix_id", "incident_id", "project_id", "description", "status", "created_at", "updated_at"],
+        "properties": {
+            "fix_id": {"bsonType": "string"},
+            "incident_id": {"bsonType": "string"},
+            "project_id": {"bsonType": "string"},
+            "description": {"bsonType": "string"},
+            "status": {
+                "enum": ["proposed", "applied", "verifying", "verified", "failed", "reverted"]
+            },
+            "created_at": {"bsonType": "date"},
+            "updated_at": {"bsonType": "date"},
+        },
+    }
+}
+
 
 def _ensure_collection_with_validator(db: Database, name: str, validator: dict) -> None:
     """Create collection with schema validator if missing, or update validator safely."""
@@ -76,6 +108,8 @@ def init_indexes(db: Database) -> None:
     _ensure_collection_with_validator(db, "projects", PROJECTS_VALIDATOR)
     _ensure_collection_with_validator(db, "command_runs", COMMAND_RUNS_VALIDATOR)
     _ensure_collection_with_validator(db, "incidents", INCIDENTS_VALIDATOR)
+    _ensure_collection_with_validator(db, "diagnoses", DIAGNOSES_VALIDATOR)
+    _ensure_collection_with_validator(db, "fix_outcomes", FIX_OUTCOMES_VALIDATOR)
 
     # 2. Projects indexes
     try:
@@ -120,5 +154,29 @@ def init_indexes(db: Database) -> None:
         )
     except Exception as exc:
         logger.warning("Index error on incidents: %s", exc)
+
+    # 5. Diagnoses indexes
+    try:
+        db.diagnoses.create_index("diagnosis_id", unique=True, name="idx_diagnoses_id_unique")
+        db.diagnoses.create_index(
+            [("incident_id", ASCENDING), ("created_at", DESCENDING)],
+            name="idx_diagnoses_incident_created",
+        )
+    except Exception as exc:
+        logger.warning("Index error on diagnoses: %s", exc)
+
+    # 6. Fix outcomes indexes
+    try:
+        db.fix_outcomes.create_index("fix_id", unique=True, name="idx_fixes_id_unique")
+        db.fix_outcomes.create_index(
+            [("project_id", ASCENDING), ("incident_id", ASCENDING), ("created_at", DESCENDING)],
+            name="idx_fixes_project_incident_created",
+        )
+        db.fix_outcomes.create_index(
+            [("incident_id", ASCENDING), ("created_at", DESCENDING)],
+            name="idx_fixes_incident_created",
+        )
+    except Exception as exc:
+        logger.warning("Index error on fix_outcomes: %s", exc)
 
     logger.info("MongoDB indexes and collection validators verified successfully.")

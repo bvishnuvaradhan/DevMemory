@@ -10,6 +10,18 @@ from app.schemas.analytics import (
     RecurringErrorItem,
     RecurringErrorsResponse,
 )
+from app.schemas.diagnosis import (
+    DiagnosisCreate,
+    DiagnosisResponse,
+    HypothesisItem,
+    MatchedMemoryRef,
+)
+from app.schemas.fix import (
+    FixOutcomeCreate,
+    FixOutcomeResponse,
+    FixOutcomeUpdate,
+    FixStatus,
+)
 from app.schemas.incident import IncidentCreate, IncidentResponse
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.project import ProjectCreate, ProjectResponse
@@ -50,4 +62,12 @@ __all__ = [
     "ProjectAnalyticsResponse",
     "CrossProjectIncidentSummary",
     "IncidentHistoryResponse",
+    "DiagnosisCreate",
+    "DiagnosisResponse",
+    "HypothesisItem",
+    "MatchedMemoryRef",
+    "FixOutcomeCreate",
+    "FixOutcomeResponse",
+    "FixOutcomeUpdate",
+    "FixStatus",
 ]
