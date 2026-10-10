@@ -87,12 +87,19 @@ def test_suite_b_multi_mode_retrieval_benchmark():
     m1 = results["mode1_lexical"]
     m2 = results["mode2_deterministic_hybrid"]
     m3 = results["mode3_dense_mock_hybrid"]
+    m4 = results["mode4_real_dense"]
 
     # Integrity verification: Mode 3 is marked as simulated mock
     assert not m1.is_simulated_mock
     assert not m2.is_simulated_mock
     assert m3.is_simulated_mock
     assert "Simulated" in m3.provider_description
+
+    # Integrity verification: Mode 4 reports skipped when unconfigured
+    if not os.getenv("OPENAI_API_KEY"):
+        assert m4.is_executed is False
+        assert m4.status == "SKIPPED"
+        assert "SKIPPED" in m4.provider_description
 
     # Contradiction Rejection Rate is 100% across ALL modes
     assert m1.contradiction_rejection_rate == 1.0

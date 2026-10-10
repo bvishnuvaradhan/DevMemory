@@ -153,13 +153,13 @@ class ConfigurableDenseEmbeddingProvider:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "text-embedding-3-small",
+        model: Optional[str] = None,
         dimension: int = 1536,
         client: Optional[DenseEmbeddingClient] = None,
         fallback_provider: Optional[EmbeddingProvider] = None,
     ) -> None:
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.model = model
+        self.model = model or os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
         self._dim = dimension
         self._client = client
         self._fallback = fallback_provider or DeterministicEmbeddingProvider(dimension=dimension)
@@ -187,13 +187,20 @@ class ConfigurableDenseEmbeddingProvider:
         if not clean_text:
             return [0.0] * self._dim
 
+        # Check external AI opt-out privacy policy
+        if os.getenv("DEV_MEMORY_DISABLE_EXTERNAL_AI", "").lower() in ("1", "true", "yes") or \
+           os.getenv("DEVMEMORY_OFFLINE_MODE", "").lower() in ("1", "true", "yes"):
+            logger.info("External AI inference disabled by privacy configuration; using deterministic fallback.")
+            return self._fallback.get_embedding(clean_text)
+
         # If custom client is injected (e.g. for offline mock testing)
         if self._client is not None:
             try:
                 raw_vec = self._client.create_embedding(clean_text, self.model)
                 return self._normalize_vector(raw_vec)
             except Exception as exc:
-                logger.warning("Dense embedding client failed (%s); using deterministic fallback.", exc)
+                safe_exc = redact_secrets(str(exc))
+                logger.warning("Dense embedding client failed (%s); using deterministic fallback.", safe_exc)
                 return self._fallback.get_embedding(clean_text)
 
         # If live credentials exist and official openai SDK is installed
@@ -202,18 +209,21 @@ class ConfigurableDenseEmbeddingProvider:
                 import urllib.request
                 import json
 
-                url = "https://api.openai.com/v1/embeddings"
-                req_data = json.dumps({
+                url = os.getenv("OPENAI_EMBEDDINGS_URL", "https://api.openai.com/v1/embeddings")
+                payload: Dict[str, Any] = {
                     "input": clean_text,
                     "model": self.model,
-                    "dimensions": self._dim,
-                }).encode("utf-8")
+                }
+                if "text-embedding-3" in self.model:
+                    payload["dimensions"] = self._dim
+                req_data = json.dumps(payload).encode("utf-8")
                 req = urllib.request.Request(
                     url,
                     data=req_data,
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json",
+                        "User-Agent": "DevMemory-AI-Engine/1.0",
                     },
                 )
                 with urllib.request.urlopen(req, timeout=5.0) as resp:
@@ -221,7 +231,8 @@ class ConfigurableDenseEmbeddingProvider:
                     raw_vec = resp_json["data"][0]["embedding"]
                     return self._normalize_vector(raw_vec)
             except Exception as exc:
-                logger.warning("Live dense embedding request failed (%s); falling back to deterministic.", exc)
+                safe_exc = redact_secrets(str(exc))
+                logger.warning("Live dense embedding request failed (%s); falling back to deterministic.", safe_exc)
                 return self._fallback.get_embedding(clean_text)
 
         # Default when no external credentials configured: deterministic fallback
@@ -245,6 +256,7 @@ class ConfigurableDenseEmbeddingProvider:
 def get_configured_embedding_provider(
     provider_type: Optional[str] = None,
     dimension: Optional[int] = None,
+    model: Optional[str] = None,
 ) -> EmbeddingProvider:
     """Factory creating the appropriate embedding provider based on environment and configuration.
 
@@ -252,11 +264,15 @@ def get_configured_embedding_provider(
     requested or OPENAI_API_KEY is present.
     """
     p_type = (provider_type or os.getenv("DEVMEMORY_EMBEDDING_PROVIDER", "deterministic")).lower()
-    dim = dimension or int(os.getenv("DEVMEMORY_VECTOR_DIMENSION", str(DEFAULT_VECTOR_DIMENSION)))
+    env_dim = int(os.getenv("DEVMEMORY_VECTOR_DIMENSION", "0")) if os.getenv("DEVMEMORY_VECTOR_DIMENSION") else None
+    selected_model = model or os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
     if p_type == "dense" or (p_type == "auto" and os.getenv("OPENAI_API_KEY")):
-        return ConfigurableDenseEmbeddingProvider(dimension=dim)
-    return DeterministicEmbeddingProvider(dimension=dim)
+        dense_dim = dimension or env_dim or 1536
+        return ConfigurableDenseEmbeddingProvider(dimension=dense_dim, model=selected_model)
+
+    det_dim = dimension or env_dim or DEFAULT_VECTOR_DIMENSION
+    return DeterministicEmbeddingProvider(dimension=det_dim)
 
 
 def cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
