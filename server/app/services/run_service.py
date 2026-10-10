@@ -31,11 +31,11 @@ def ingest_run(db: Database, payload: RunCreate) -> tuple[RunResponse, bool]:
     finished_at = payload.finished_at or (started_at + timedelta(milliseconds=payload.duration_ms))
     run_status = "success" if payload.exit_code == 0 else "failure"
 
-    # 2. Check and derive incident if error occurred and context exists
+    # 2. Check and derive incident if error occurred
     incident_id: Optional[str] = None
-    if payload.exit_code != 0 and payload.error_context:
-        ctx = payload.error_context
-        if ctx.error_type or ctx.message:
+    if payload.exit_code != 0:
+        if payload.error_context and (payload.error_context.error_type or payload.error_context.message):
+            ctx = payload.error_context
             inc = create_or_get_incident(
                 db=db,
                 project_id=payload.project_id,
@@ -46,6 +46,22 @@ def ingest_run(db: Database, payload: RunCreate) -> tuple[RunResponse, bool]:
                 line=ctx.line,
                 column=ctx.column,
                 source_snippet=ctx.snippet,
+            )
+            incident_id = inc.incident_id
+        else:
+            # Fallback incident derivation for non-zero exit code without structured context
+            first_err = (payload.stderr or payload.stdout or "").strip().splitlines()
+            err_msg = first_err[0][:1000] if first_err else f"Command failed with exit code {payload.exit_code}"
+            inc = create_or_get_incident(
+                db=db,
+                project_id=payload.project_id,
+                event_id=payload.event_id,
+                error_type="CommandError",
+                error_message=err_msg,
+                file_path=None,
+                line=None,
+                column=None,
+                source_snippet=None,
             )
             incident_id = inc.incident_id
 

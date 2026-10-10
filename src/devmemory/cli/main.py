@@ -216,32 +216,47 @@ def init(
     )
 
 
-def _convert_diagnostic_to_backend_context(diag: Optional[DiagnosticResult]) -> Optional[BackendErrorContext]:
-    """Map local DiagnosticResult to backend's ErrorContext schema."""
-    if not diag or not diag.has_diagnostic:
-        return None
+def _convert_diagnostic_to_backend_context(
+    diag: Optional[DiagnosticResult],
+    fallback_message: Optional[str] = None,
+) -> Optional[BackendErrorContext]:
+    """Map local DiagnosticResult to backend's ErrorContext schema with safe fallback."""
+    if diag and diag.has_diagnostic:
+        file_path = None
+        line = None
+        col = None
+        snippet_str = None
 
-    file_path = None
-    line = None
-    col = None
-    snippet_str = None
+        if diag.primary_frame:
+            pf = diag.primary_frame
+            file_path = pf.file_path
+            line = pf.line_number
+            col = pf.column_number
+            if pf.snippet and pf.snippet.lines:
+                snippet_str = "\n".join(pf.snippet.lines)
+            elif pf.code_line:
+                snippet_str = pf.code_line
 
-    if diag.primary_frame:
-        pf = diag.primary_frame
-        file_path = pf.file_path
-        line = pf.line_number
-        col = pf.column_number
-        if pf.snippet and pf.snippet.lines:
-            snippet_str = "\n".join(pf.snippet.lines)
+        return BackendErrorContext(
+            error_type=diag.error_type,
+            message=diag.message,
+            file_path=file_path,
+            line=line,
+            column=col,
+            snippet=snippet_str,
+        )
 
-    return BackendErrorContext(
-        error_type=diag.error_type,
-        message=diag.message,
-        file_path=file_path,
-        line=line,
-        column=col,
-        snippet=snippet_str,
-    )
+    if fallback_message:
+        return BackendErrorContext(
+            error_type="CommandError",
+            message=fallback_message,
+            file_path=None,
+            line=None,
+            column=None,
+            snippet=None,
+        )
+
+    return None
 
 
 def _render_diagnostic_report(diag: DiagnosticResult, cwd: Path) -> None:
@@ -305,7 +320,11 @@ def _render_backend_report(ingestion: IngestionResult) -> None:
 
     diag = ingestion.diagnosis
     if not diag:
-        console.print("  [dim]Run recorded successfully in DevMemory backend.[/]")
+        if ingestion.incident_id:
+            console.print("  [bold red]Diagnosis:[/]     [yellow]Unavailable (Diagnosis request could not be completed)[/]")
+            console.print(f"  [dim]Run recorded in backend. To re-run diagnosis, use: devmemory diagnose --incident {ingestion.incident_id}[/]")
+        else:
+            console.print("  [dim]Run recorded successfully in DevMemory backend.[/]")
         return
 
     # Outcome 4: Diagnosis unavailable / error / empty response
@@ -415,7 +434,11 @@ def run(
     event_id = str(uuid.uuid4())
     sanitized_stdout = redact_secrets(result.stdout)
     sanitized_stderr = redact_secrets(result.stderr)
-    error_context = _convert_diagnostic_to_backend_context(diagnostic)
+    fallback_err_msg = (
+        result.error_message
+        or (sanitized_stderr.strip().splitlines()[0] if sanitized_stderr.strip() else f"Command failed with exit code {result.exit_code}")
+    ) if result.exit_code != 0 else None
+    error_context = _convert_diagnostic_to_backend_context(diagnostic, fallback_message=fallback_err_msg)
 
     # Ensure project is registered in backend before run ingestion
     client.register_project(project_id=project_id, name=project_name)

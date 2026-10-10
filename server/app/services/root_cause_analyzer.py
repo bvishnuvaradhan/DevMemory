@@ -52,10 +52,10 @@ def _extract_target_code_line(
         # Search stack trace for the failing frame's code line
         st_lines = stack_trace.splitlines()
         for i, l in enumerate(st_lines):
-            if re.match(r'^\s*File\s+"[^"]+",\s+line\s+\d+', l):
+            if re.match(r'^\s*File\s+"[^"]+",\s+line\s+\d+', l) or re.match(r'^[a-zA-Z0-9_\-\./\\]+\.[a-zA-Z0-9_]+:\d+:', l):
                 if i + 1 < len(st_lines):
                     candidate = st_lines[i + 1].strip()
-                    if not candidate.startswith("File ") and not re.match(r"^[A-Z][a-zA-Z0-9_]*Error:", candidate):
+                    if not candidate.startswith("File ") and not re.match(r"^[A-Z][a-zA-Z0-9_]*Error:", candidate) and not candidate.startswith("error:"):
                         return candidate
 
     return None
@@ -77,16 +77,8 @@ def _collect_source_text(
     source_snippet: Optional[str],
     file_path: Optional[str],
 ) -> str:
-    """Collect source code text from filesystem if accessible, otherwise extract from snippet."""
-    if file_path:
-        try:
-            p = Path(file_path)
-            if p.is_file() and p.stat().st_size <= 256 * 1024:
-                content = p.read_text(encoding="utf-8", errors="replace")
-                if content.strip():
-                    return content
-        except Exception:
-            pass
+    """Collect source code text from snippet and filesystem if accessible."""
+    sources: List[str] = []
 
     if source_snippet:
         cleaned_lines = []
@@ -96,9 +88,21 @@ def _collect_source_text(
                 cleaned_lines.append(m.group(1))
             else:
                 cleaned_lines.append(l)
-        return "\n".join(cleaned_lines)
+        snip_str = "\n".join(cleaned_lines).strip()
+        if snip_str:
+            sources.append(snip_str)
 
-    return ""
+    if file_path:
+        try:
+            p = Path(file_path)
+            if p.is_file() and p.stat().st_size <= 256 * 1024:
+                content = p.read_text(encoding="utf-8", errors="replace").strip()
+                if content and content not in sources:
+                    sources.append(content)
+        except Exception:
+            pass
+
+    return "\n\n".join(sources)
 
 
 def _detect_language_mismatch(
@@ -606,6 +610,321 @@ def refine_root_cause_diagnosis(
             hypotheses=[f"Key '{key_name}' was missing from dictionary"],
             evidence=evidence,
             confidence=0.92,
+        )
+
+    # 6. CompilationError and Compiler Diagnostics (Java, C/C++, generic compilers)
+    is_compiler_error = (
+        "CompilationError" in norm_type
+        or "CompileError" in norm_type
+        or (file_path and any(file_path.lower().endswith(ext) for ext in (".java", ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".rs", ".go")) and ("error:" in norm_msg.lower() or "error:" in (stack_trace or "").lower()))
+    )
+
+    if is_compiler_error:
+        fname = file_path.replace("\\", "/").split("/")[-1] if file_path else "the source file"
+
+        # 6a. Java: class Hello(){ -> class Hello {
+        search_ctx = f"{code_line or ''}\n{source_snippet or ''}\n{stack_trace or ''}"
+        class_paren_match = re.search(r"\bclass\s+([A-Za-z0-9_]+)\s*\(\s*\)\s*(\{)?", search_ctx)
+        if class_paren_match and "{" in norm_msg and "expected" in norm_msg.lower():
+            class_name = class_paren_match.group(1)
+            likely_cause = (
+                f"The Java class declaration contains parentheses after the class name. "
+                f"Java class declarations use braces to delimit the class body, so the compiler expects '{{' after {class_name}."
+            )
+            summary = f"Java compilation error: '{{' expected after class declaration '{class_name}'{loc_str}."
+            has_brace = bool(class_paren_match.group(2))
+            target_class_decl = f"class {class_name}(){{" if has_brace else f"class {class_name}()"
+            steps = [
+                f"Change '{target_class_decl}' to 'class {class_name} {{'.",
+                "Keep methods and fields inside the class body.",
+                "Re-run the Java source file after correcting the declaration.",
+            ]
+            evidence = [
+                f"Compiler diagnostic: {norm_msg}",
+            ]
+            if loc_str:
+                evidence.append(f"Failing location: {loc_str.strip()}")
+            if code_line:
+                evidence.append(f"Failing code line: {code_line}")
+            if column:
+                evidence.append(f"Caret column: {column}")
+
+            return RefinedDiagnosis(
+                is_refined=True,
+                summary=summary,
+                likely_cause=likely_cause,
+                suggested_fix="; ".join(steps),
+                suggested_steps=steps,
+                hypotheses=[
+                    f"Syntax error in class declaration: parentheses used instead of braces on class '{class_name}'",
+                    "Expected '{' delimiter for class body definition",
+                ],
+                evidence=evidence,
+                confidence=0.98,
+            )
+
+        # 6b. '{' expected (general)
+        if "{" in norm_msg and "expected" in norm_msg.lower():
+            likely_cause = f"The compiler expected an opening brace '{{' to begin a code block or declaration body{loc_str}: {norm_msg}."
+            summary = f"Compilation error: '{{' expected{loc_str}."
+            steps = [
+                "Verify that block statements, class declarations, and method bodies use an opening brace '{'.",
+                "Ensure matching pairs for all opening '{' and closing '}' braces in the source file.",
+                "Check the syntax immediately preceding the reported error location.",
+            ]
+            evidence = [f"Compiler diagnostic: {norm_msg}"]
+            if loc_str:
+                evidence.append(f"Failing location: {loc_str.strip()}")
+            if code_line:
+                evidence.append(f"Failing code line: {code_line}")
+            return RefinedDiagnosis(
+                is_refined=True,
+                summary=summary,
+                likely_cause=likely_cause,
+                suggested_fix="; ".join(steps),
+                suggested_steps=steps,
+                hypotheses=["Expected opening brace '{' in source syntax"],
+                evidence=evidence,
+                confidence=0.92,
+            )
+
+        # 6c. ';' expected
+        if ";" in norm_msg and "expected" in norm_msg.lower():
+            likely_cause = f"The statement or declaration is missing a terminating semicolon ';'{loc_str}."
+            summary = f"Compilation error: ';' expected{loc_str}."
+            steps = [
+                "Add a terminating semicolon ';' at the end of the statement or declaration.",
+                "Verify matching pairs for all parentheses '()' and brackets '[]' on the line.",
+            ]
+            evidence = [f"Compiler diagnostic: {norm_msg}"]
+            if loc_str:
+                evidence.append(f"Failing location: {loc_str.strip()}")
+            if code_line:
+                evidence.append(f"Failing code line: {code_line}")
+            return RefinedDiagnosis(
+                is_refined=True,
+                summary=summary,
+                likely_cause=likely_cause,
+                suggested_fix="; ".join(steps),
+                suggested_steps=steps,
+                hypotheses=["Missing terminating semicolon ';' in source code"],
+                evidence=evidence,
+                confidence=0.92,
+            )
+
+        # 6d. cannot find symbol (Java)
+        if "cannot find symbol" in norm_msg.lower():
+            sym_match = re.search(r"symbol:\s*(?:variable|method|class)\s+([A-Za-z0-9_]+)", stack_trace or "")
+            sym_name = sym_match.group(1) if sym_match else "the referenced identifier"
+            likely_cause = f"The identifier '{sym_name}' cannot be resolved by the compiler{loc_str}. It is not declared, not imported, or out of scope."
+            summary = f"Compilation error: cannot find symbol '{sym_name}'{loc_str}."
+            steps = [
+                f"Check for spelling errors or typos in '{sym_name}'.",
+                f"Declare and initialize '{sym_name}' before referencing it.",
+                f"If '{sym_name}' belongs to a package or library, add the corresponding 'import' statement.",
+            ]
+            evidence = [f"Compiler diagnostic: {norm_msg}"]
+            if loc_str:
+                evidence.append(f"Failing location: {loc_str.strip()}")
+            if code_line:
+                evidence.append(f"Failing code line: {code_line}")
+            return RefinedDiagnosis(
+                is_refined=True,
+                summary=summary,
+                likely_cause=likely_cause,
+                suggested_fix="; ".join(steps),
+                suggested_steps=steps,
+                hypotheses=[f"Identifier '{sym_name}' was not declared or not imported"],
+                evidence=evidence,
+                confidence=0.92,
+            )
+
+        # 6e. public class filename mismatch (Java)
+        if "should be declared in a file named" in norm_msg.lower() or "should be declared in a file named" in (stack_trace or "").lower():
+            pub_match = re.search(r"class\s+([A-Za-z0-9_]+)\s+is public, should be declared in a file named\s+([A-Za-z0-9_]+\.java)", norm_msg or (stack_trace or ""))
+            c_name = pub_match.group(1) if pub_match else "The public class"
+            expected_file = pub_match.group(2) if pub_match else "matching file name"
+            likely_cause = f"In Java, public class '{c_name}' must be declared in a file named '{expected_file}', but was found in '{fname}'."
+            summary = f"Compilation error: public class file name mismatch for '{c_name}'."
+            steps = [
+                f"Rename the source file from '{fname}' to '{expected_file}'.",
+                f"Alternatively, remove the 'public' access modifier from 'class {c_name}' if another public class is present in the file.",
+            ]
+            evidence = [f"Compiler diagnostic: {norm_msg}"]
+            return RefinedDiagnosis(
+                is_refined=True,
+                summary=summary,
+                likely_cause=likely_cause,
+                suggested_fix="; ".join(steps),
+                suggested_steps=steps,
+                hypotheses=[f"Public class '{c_name}' must match file name '{expected_file}'"],
+                evidence=evidence,
+                confidence=0.95,
+            )
+
+        # 6f. C/C++ missing header
+        header_ctx = f"{norm_msg}\n{stack_trace or ''}"
+        if ("fatal error:" in header_ctx.lower() or "include" in header_ctx.lower()) and "no such file or directory" in header_ctx.lower():
+            h_match = re.search(r"(?:fatal error:\s*)?([a-zA-Z0-9_\-\./\\]+\.[a-zA-Z0-9_]+|[^:\r\n]+):\s*No such file or directory", header_ctx, re.IGNORECASE)
+            h_name = h_match.group(1).strip() if h_match else "header file"
+            likely_cause = f"The header file '{h_name}' referenced in the #include directive was not found by the compiler."
+            summary = f"Compilation error: header file '{h_name}' not found."
+            steps = [
+                f"Check for typos or spelling errors in '#include <{h_name}>' or '#include \"{h_name}\"'.",
+                "Verify that the necessary development libraries or SDK packages are installed.",
+                "Specify the include directory using the '-I<path>' compiler flag.",
+            ]
+            evidence = [f"Compiler diagnostic: {norm_msg}"]
+            return RefinedDiagnosis(
+                is_refined=True,
+                summary=summary,
+                likely_cause=likely_cause,
+                suggested_fix="; ".join(steps),
+                suggested_steps=steps,
+                hypotheses=[f"Include header '{h_name}' was not found in include search paths"],
+                evidence=evidence,
+                confidence=0.95,
+            )
+
+        # 6g. C/C++ undeclared identifier
+        if "was not declared in this scope" in norm_msg.lower() or "undeclared" in norm_msg.lower():
+            id_match = re.search(r"['\"]?([A-Za-z0-9_]+)['\"]?\s+(?:was not declared in this scope|undeclared)", norm_msg or (stack_trace or ""))
+            ident = id_match.group(1) if id_match else "the identifier"
+            likely_cause = f"The identifier '{ident}' was referenced before being declared or included{loc_str}."
+            summary = f"Compilation error: undeclared identifier '{ident}'{loc_str}."
+            steps = [
+                f"Declare and define '{ident}' before using it.",
+                f"Include the required header file that defines '{ident}'.",
+                "Check for spelling errors or missing namespace qualifiers (such as 'std::').",
+            ]
+            evidence = [f"Compiler diagnostic: {norm_msg}"]
+            if loc_str:
+                evidence.append(f"Failing location: {loc_str.strip()}")
+            if code_line:
+                evidence.append(f"Failing code line: {code_line}")
+            return RefinedDiagnosis(
+                is_refined=True,
+                summary=summary,
+                likely_cause=likely_cause,
+                suggested_fix="; ".join(steps),
+                suggested_steps=steps,
+                hypotheses=[f"Identifier '{ident}' was not declared in current scope"],
+                evidence=evidence,
+                confidence=0.92,
+            )
+
+        # 6h. C/C++ undefined reference (Linker error)
+        if "undefined reference to" in (norm_msg or (stack_trace or "")).lower():
+            fn_match = re.search(r"undefined reference to\s+[`'\"]?([^`'\"]+)[`'\"]?", norm_msg or (stack_trace or ""), re.IGNORECASE)
+            fn_sym = fn_match.group(1) if fn_match else "symbol"
+            likely_cause = f"Linker error: definition for '{fn_sym}' was not found during linking."
+            summary = f"Linker error: undefined reference to '{fn_sym}'."
+            steps = [
+                f"Ensure the source file or library containing the definition of '{fn_sym}' is included in the build command.",
+                f"If '{fn_sym}' is 'main', define the entrypoint function 'int main() {{ ... }}'.",
+                "Verify that all required libraries and dependencies are passed to the linker.",
+            ]
+            evidence = [f"Linker diagnostic: {norm_msg}"]
+            return RefinedDiagnosis(
+                is_refined=True,
+                summary=summary,
+                likely_cause=likely_cause,
+                suggested_fix="; ".join(steps),
+                suggested_steps=steps,
+                hypotheses=[f"Symbol definition for '{fn_sym}' missing at link time"],
+                evidence=evidence,
+                confidence=0.92,
+            )
+
+        # 6i. Generic compiler error
+        likely_cause = f"The compiler encountered an error during compilation{loc_str}: {norm_msg}."
+        summary = f"Compilation error: {norm_msg}{loc_str}."
+        steps = [
+            f"Review the compiler diagnostic message at line {line or 'unknown'}.",
+            "Inspect the source code syntax at the indicated location.",
+            "Recompile the source file after addressing the reported error.",
+        ]
+        evidence = [f"Compiler diagnostic: {norm_msg}"]
+        if loc_str:
+            evidence.append(f"Failing location: {loc_str.strip()}")
+        if code_line:
+            evidence.append(f"Failing code line: {code_line}")
+        if column:
+            evidence.append(f"Caret column: {column}")
+
+        return RefinedDiagnosis(
+            is_refined=True,
+            summary=summary,
+            likely_cause=likely_cause,
+            suggested_fix="; ".join(steps),
+            suggested_steps=steps,
+            hypotheses=["Compilation failed due to syntax or semantic error in source code"],
+            evidence=evidence,
+            confidence=0.90,
+        )
+
+    # 7. CommandNotFoundError (missing compiler or runtime executable)
+    if "CommandNotFoundError" in norm_type or ("not found on system path" in norm_msg.lower()):
+        cmd_match = re.search(r"Executable '([^']+)' not found", norm_msg) or re.search(r"Command '([^']+)' not found", norm_msg)
+        cmd_str = cmd_match.group(1) if cmd_match else "The executable"
+        likely_cause = f"The command '{cmd_str}' was not found. The tool or runtime is either not installed or not configured in the system PATH."
+        summary = f"Command not found: '{cmd_str}'."
+        steps = [
+            f"Verify that '{cmd_str}' is installed on your system.",
+            f"Ensure the directory containing '{cmd_str}' is included in your system's PATH environment variable.",
+            "Restart your terminal session after updating environment variables to apply changes.",
+        ]
+        return RefinedDiagnosis(
+            is_refined=True,
+            summary=summary,
+            likely_cause=likely_cause,
+            suggested_fix="; ".join(steps),
+            suggested_steps=steps,
+            hypotheses=[f"Executable '{cmd_str}' is not in system PATH or not installed"],
+            evidence=[f"Observed error: {norm_msg}"],
+            confidence=0.95,
+        )
+
+    # 8. FileNotFoundError (missing source file or incorrect path)
+    if "FileNotFoundError" in norm_type or ("source file" in norm_msg.lower() and "not found" in norm_msg.lower()):
+        f_match = re.search(r"Source file '([^']+)' not found", norm_msg) or re.search(r"file not found:\s*([^\r\n]+)", norm_msg)
+        f_target = f_match.group(1) if f_match else "The specified source file"
+        likely_cause = f"The source file '{f_target}' does not exist at the specified path."
+        summary = f"File not found: '{f_target}'."
+        steps = [
+            f"Check that the filename and path '{f_target}' are spelled correctly.",
+            "Verify that you are executing the command from the expected working directory.",
+            "Confirm that the file exists on the filesystem before executing the compiler.",
+        ]
+        return RefinedDiagnosis(
+            is_refined=True,
+            summary=summary,
+            likely_cause=likely_cause,
+            suggested_fix="; ".join(steps),
+            suggested_steps=steps,
+            hypotheses=[f"Target file '{f_target}' does not exist at requested path"],
+            evidence=[f"Observed error: {norm_msg}"],
+            confidence=0.95,
+        )
+
+    # 9. Generic CommandError / ExecutionFailure
+    if "CommandError" in norm_type or "ExecutionFailure" in norm_type:
+        likely_cause = f"The command failed with a non-zero exit code{loc_str}: {norm_msg}."
+        summary = f"Command failure: {norm_msg}{loc_str}."
+        steps = [
+            "Review the captured command output and error stream for diagnostic messages.",
+            "Verify command arguments, parameters, and environment settings.",
+            "Ensure that any required background services or dependencies are running.",
+        ]
+        return RefinedDiagnosis(
+            is_refined=True,
+            summary=summary,
+            likely_cause=likely_cause,
+            suggested_fix="; ".join(steps),
+            suggested_steps=steps,
+            hypotheses=["Command execution failed with non-zero exit status"],
+            evidence=[f"Observed error: {norm_type}: {norm_msg}"],
+            confidence=0.85,
         )
 
     # If already provided by AI and sufficiently detailed:

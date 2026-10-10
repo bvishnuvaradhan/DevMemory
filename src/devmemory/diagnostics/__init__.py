@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from devmemory.diagnostics.compiler_parser import parse_compiler_output
 from devmemory.diagnostics.javascript_parser import parse_javascript_stack
 from devmemory.diagnostics.models import DiagnosticResult, SourceSnippet, StackFrame
 from devmemory.diagnostics.python_parser import parse_python_traceback
@@ -39,11 +40,18 @@ def analyze_error_output(
     if js_diag.has_diagnostic and js_diag.confidence >= 0.5:
         return js_diag
 
-    # Fallback if Python or JS had weak matches
+    # Detect compiler diagnostics (Java, GCC/Clang, MSVC, CommandNotFound, FileNotFoundError)
+    comp_diag = parse_compiler_output(combined, cwd=cwd, project_root=project_root)
+    if comp_diag.has_diagnostic and comp_diag.confidence >= 0.5:
+        return comp_diag
+
+    # Fallback if Python, JS, or compiler had weak matches
     if py_diag.has_diagnostic:
         return py_diag
     if js_diag.has_diagnostic:
         return js_diag
+    if comp_diag.has_diagnostic:
+        return comp_diag
 
     return DiagnosticResult(
         language="unknown",
@@ -60,5 +68,6 @@ __all__ = [
     "extract_source_snippet",
     "parse_python_traceback",
     "parse_javascript_stack",
+    "parse_compiler_output",
     "analyze_error_output",
 ]
