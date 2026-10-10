@@ -62,7 +62,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 ---
 
-## Architecture & Data Contracts (Phases 1 & 2)
+## Architecture & Data Contracts (Phases 1, 2, & 3)
 
 ### Standard Response Envelope
 
@@ -98,16 +98,33 @@ On error, `success` is `false`, `data` is `null`, and `error` contains a clear d
 
 ---
 
-## Error Signature Normalization
+## Error Signatures & Grouping
 
-Every incident receives a normalized `error_signature`:
+Every incident receives a normalized, deterministic `error_signature`:
 - Hexadecimal addresses (`0x...`) $\to$ `<hex>`
-- Absolute file paths $\to$ `<path>`
-- UUIDs and hashes $\to$ `<uuid>`, `<hash>`
-- Embedded line/column numbers $\to$ `<loc>`
-- Timestamps $\to$ `<datetime>`
+- Filesystem paths (Windows and POSIX) $\to$ `<path>`
+- Trailing contextual file phrases (`in <path>`, `at <path>`) $\to$ stripped
+- Contextual location phrases (`line 42`, `col 10`) $\to$ `<loc>` and stripped
+- Dynamic tokens / numbers (`(run 0)`, `timeout 30`) $\to$ `<num>`
+- Auth headers / keys (`Bearer ...`, `ghp_...`, `sk-...`) $\to$ `<token>`
 
-This creates a stable grouping key (e.g., `sig_TypeError_a1b2c3d4e5f6`) used for historical incident grouping.
+Example signature: `sig_TypeError_4f8b2c1a9e3d`
+
+### Limitations of Deterministic Fingerprinting
+- **Exact Semantics**: Deterministic signatures group structurally and syntactically equivalent errors without requiring an external vector search engine.
+- **Different Error Types with Same Cause**: Different exceptions (e.g. `FileNotFoundError` vs `PermissionError`) will receive distinct signatures even if related to the same missing file. Semantic grouping across different exception classes is deferred to Phase 4 (AI diagnosis module).
+
+---
+
+## Cross-Project Privacy Controls & Limitations
+
+When retrieving historical incidents across project boundaries (`GET /api/v1/incidents/{incident_id}/history`):
+- **Sanitized Fields**: Only `incident_id`, `project_id`, `error_type`, `error_signature`, `error_message` (sanitized), and `created_at` are disclosed.
+- **Redaction**:
+  - `source_snippet` and raw code lines are **never** included in cross-project responses.
+  - `file_path`, line, and column numbers are **never** included in cross-project responses.
+  - User home paths (`C:\Users\<user>\...` or `/home/<user>/...`), auth tokens, passwords, and IP addresses are automatically redacted to `<USER_HOME>`, `<REDACTED>`, and `<HOST:PORT>`.
+- **Known Authorization Limitations**: In the current MVP phase, cross-project sharing retrieves sanitized error summaries based on error signature matching across all registered projects in the shared MongoDB database. Multi-tenant workspace RBAC and fine-grained team permission flags are planned for subsequent production releases.
 
 ---
 
@@ -121,7 +138,7 @@ This creates a stable grouping key (e.g., `sig_TypeError_a1b2c3d4e5f6`) used for
 | `GET` | `/api/v1/health` | 200 / 503 | Versioned health check |
 | `GET` | `/docs` | 200 | Interactive OpenAPI / Swagger UI |
 
-### Projects
+### Projects & Analytics
 
 | Method | Path | Status | Description |
 | :--- | :--- | :--- | :--- |
@@ -130,6 +147,8 @@ This creates a stable grouping key (e.g., `sig_TypeError_a1b2c3d4e5f6`) used for
 | `GET` | `/api/v1/projects/{project_id}` | 200 / 404 | Retrieve project details |
 | `GET` | `/api/v1/projects/{project_id}/runs` | 200 / 404 | List project runs (supports `status=success\|failure`, `limit`, `skip`) |
 | `GET` | `/api/v1/projects/{project_id}/incidents` | 200 / 404 | List project incidents (paginated) |
+| `GET` | `/api/v1/projects/{project_id}/analytics/recurring` | 200 / 404 | **MongoDB Aggregation**: Top recurring errors grouped by error signature |
+| `GET` | `/api/v1/projects/{project_id}/analytics` | 200 / 404 | High-level summary metrics (runs, success/fail counts, duration) |
 
 ### Command Runs
 
@@ -138,44 +157,94 @@ This creates a stable grouping key (e.g., `sig_TypeError_a1b2c3d4e5f6`) used for
 | `POST` | `/api/v1/runs` | 201 / 200 / 404 / 409 / 422 | Ingest command run event (idempotent) |
 | `GET` | `/api/v1/runs/{event_id}` | 200 / 404 | Retrieve command run by event ID |
 
-### Incidents
+### Incidents & Memory Retrieval
 
 | Method | Path | Status | Description |
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/v1/incidents` | 201 / 404 / 422 | Register an incident explicitly |
 | `GET` | `/api/v1/incidents/{incident_id}` | 200 / 404 | Retrieve incident details |
+| `GET` | `/api/v1/incidents/{incident_id}/history` | 200 / 404 | **Memory Retrieval**: Same-project vs privacy-sanitized cross-project historical incidents |
 
 ---
 
-## Request & Response Examples
+## Response Examples (Phase 3)
 
-### Register Project (`POST /api/v1/projects`)
+### Recurring Error Analytics (`GET /api/v1/projects/{project_id}/analytics/recurring`)
 
-**Request**:
 ```json
 {
-  "name": "ShopApp Frontend",
-  "project_id": "proj_shopapp",
-  "language": "javascript",
-  "settings": {
-    "framework": "react"
-  }
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "error_signature": "sig_TypeError_4f8b2c1a9e3d",
+        "error_type": "TypeError",
+        "error_message": "data.map is not a function",
+        "occurrence_count": 5,
+        "latest_occurrence": "2026-10-10T12:30:00Z"
+      }
+    ],
+    "total_groups": 1
+  },
+  "error": null
 }
 ```
 
-**Response (HTTP 201 Created)**:
+### Project Summary Analytics (`GET /api/v1/projects/{project_id}/analytics`)
+
 ```json
 {
   "success": true,
   "data": {
     "project_id": "proj_shopapp",
-    "name": "ShopApp Frontend",
-    "language": "javascript",
-    "settings": {
-      "framework": "react"
-    },
-    "created_at": "2026-10-10T12:00:00Z",
-    "updated_at": "2026-10-10T12:00:00Z"
+    "total_runs": 12,
+    "successful_runs": 8,
+    "failed_runs": 4,
+    "total_incidents": 4,
+    "distinct_error_signatures": 2,
+    "recent_incidents_24h": 4,
+    "average_duration_ms": 1150
+  },
+  "error": null
+}
+```
+
+### Cross-Project Incident History (`GET /api/v1/incidents/{incident_id}/history`)
+
+```json
+{
+  "success": true,
+  "data": {
+    "current_incident_id": "inc_evt_demo_001",
+    "error_signature": "sig_TypeError_4f8b2c1a9e3d",
+    "same_project_matches": [
+      {
+        "incident_id": "inc_evt_demo_000",
+        "event_id": "evt_demo_000",
+        "project_id": "proj_shopapp",
+        "error_type": "TypeError",
+        "error_message": "data.map is not a function",
+        "error_signature": "sig_TypeError_4f8b2c1a9e3d",
+        "file_path": "src/App.jsx",
+        "line": 24,
+        "column": 8,
+        "source_snippet": "data.map(item => item.name)",
+        "diagnosis_status": "pending",
+        "created_at": "2026-10-10T10:00:00Z"
+      }
+    ],
+    "cross_project_matches": [
+      {
+        "incident_id": "inc_evt_other_99",
+        "project_id": "proj_billing",
+        "error_type": "TypeError",
+        "error_signature": "sig_TypeError_4f8b2c1a9e3d",
+        "error_message": "data.map is not a function in <PATH>\\view.js",
+        "created_at": "2026-10-09T18:00:00Z",
+        "diagnosis_summary": null,
+        "fix_status": null
+      }
+    ]
   },
   "error": null
 }
@@ -183,86 +252,18 @@ This creates a stable grouping key (e.g., `sig_TypeError_a1b2c3d4e5f6`) used for
 
 ---
 
-### Ingest Failed Command Run (`POST /api/v1/runs`)
+## MongoDB Indexes and Supported Queries
 
-**Request**:
-```json
-{
-  "event_id": "evt_demo_001",
-  "project_id": "proj_shopapp",
-  "command": "npm test",
-  "exit_code": 1,
-  "duration_ms": 1250,
-  "stdout": "",
-  "stderr": "TypeError: data.map is not a function",
-  "environment": {
-    "os": "Windows",
-    "runtime_version": "v22.19.0"
-  },
-  "error_context": {
-    "error_type": "TypeError",
-    "message": "data.map is not a function",
-    "file_path": "src/App.jsx",
-    "line": 24,
-    "column": 8,
-    "snippet": "data.map(item => item.name)"
-  }
-}
-```
+All indexes are verified and initialized idempotently during startup via `init_indexes`:
 
-**Response (HTTP 201 Created)**:
-```json
-{
-  "success": true,
-  "data": {
-    "event_id": "evt_demo_001",
-    "project_id": "proj_shopapp",
-    "command": "npm test",
-    "exit_code": 1,
-    "status": "failure",
-    "duration_ms": 1250,
-    "stdout": "",
-    "stderr": "TypeError: data.map is not a function",
-    "started_at": "2026-10-10T12:00:00Z",
-    "finished_at": "2026-10-10T12:00:01.250000Z",
-    "created_at": "2026-10-10T12:00:01Z",
-    "environment": {
-      "os": "Windows",
-      "runtime_version": "v22.19.0",
-      "git_branch": null,
-      "git_commit": null
-    },
-    "error_context": {
-      "error_type": "TypeError",
-      "message": "data.map is not a function",
-      "file_path": "src/App.jsx",
-      "line": 24,
-      "column": 8,
-      "snippet": "data.map(item => item.name)"
-    },
-    "idempotent": false,
-    "incident_id": "inc_evt_demo_001"
-  },
-  "error": null
-}
-```
-
----
-
-## MongoDB Indexes and Schema Validation
-
-Index initialization runs automatically during FastAPI startup (`lifespan`) and is completely idempotent:
-
-- **`projects`**:
-  - `idx_projects_project_id_unique`: Unique on `project_id`.
-  - Schema validator ensuring `project_id`, `name`, `created_at`, `updated_at`.
-- **`command_runs`**:
-  - `idx_runs_event_id_unique`: Unique on `event_id`.
-  - `idx_runs_project_started_at`: Compound on `{project_id: 1, started_at: -1}`.
-  - Schema validator ensuring `event_id`, `project_id`, `command`, `exit_code`, `duration_ms`.
-- **`incidents`**:
-  - `idx_incidents_incident_id_unique`: Unique on `incident_id`.
-  - `idx_incidents_project_event_unique`: Partial unique on `{project_id: 1, event_id: 1}` where `event_id` is a string.
-  - `idx_incidents_project_created_at`: Compound on `{project_id: 1, created_at: -1}`.
-  - `idx_incidents_error_signature`: Index on `error_signature`.
-  - Schema validator ensuring `incident_id`, `project_id`, `error_type`, `error_message`, `error_signature`.
+| Collection | Index Name | Key Pattern | Supported Query Pattern |
+| :--- | :--- | :--- | :--- |
+| `projects` | `idx_projects_project_id_unique` | `{ project_id: 1 }` (unique) | Unique project lookup and collision prevention |
+| `command_runs` | `idx_runs_event_id_unique` | `{ event_id: 1 }` (unique) | Idempotent run ingestion and single run lookup |
+| `command_runs` | `idx_runs_project_started_at` | `{ project_id: 1, started_at: -1 }` | Paginated project run history sorted newest first |
+| `command_runs` | `idx_runs_project_exit_code` | `{ project_id: 1, exit_code: 1 }` | Fast calculation of successful vs failed runs |
+| `incidents` | `idx_incidents_incident_id_unique` | `{ incident_id: 1 }` (unique) | Single incident lookup |
+| `incidents` | `idx_incidents_project_event_unique` | `{ project_id: 1, event_id: 1 }` (unique, partial) | Prevents duplicate incidents for the same run |
+| `incidents` | `idx_incidents_project_created_at` | `{ project_id: 1, created_at: -1 }` | Paginated incident listing by project |
+| `incidents` | `idx_incidents_project_signature_created` | `{ project_id: 1, error_signature: 1, created_at: -1 }` | **MongoDB Aggregation**: Fast recurring error grouping and same-project history |
+| `incidents` | `idx_incidents_signature_created` | `{ error_signature: 1, created_at: -1 }` | **Cross-Project Memory**: Retrieval across all projects by signature |

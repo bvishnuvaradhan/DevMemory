@@ -90,13 +90,16 @@ def init_indexes(db: Database) -> None:
             [("project_id", ASCENDING), ("started_at", DESCENDING)],
             name="idx_runs_project_started_at",
         )
+        db.command_runs.create_index(
+            [("project_id", ASCENDING), ("exit_code", ASCENDING)],
+            name="idx_runs_project_exit_code",
+        )
     except Exception as exc:
         logger.warning("Index error on command_runs: %s", exc)
 
     # 4. Incidents indexes
     try:
         db.incidents.create_index("incident_id", unique=True, name="idx_incidents_incident_id_unique")
-        # Partial unique index: only enforces uniqueness when event_id is a non-null string
         db.incidents.create_index(
             [("project_id", ASCENDING), ("event_id", ASCENDING)],
             unique=True,
@@ -107,7 +110,14 @@ def init_indexes(db: Database) -> None:
             [("project_id", ASCENDING), ("created_at", DESCENDING)],
             name="idx_incidents_project_created_at",
         )
-        db.incidents.create_index("error_signature", name="idx_incidents_error_signature")
+        db.incidents.create_index(
+            [("project_id", ASCENDING), ("error_signature", ASCENDING), ("created_at", DESCENDING)],
+            name="idx_incidents_project_signature_created",
+        )
+        db.incidents.create_index(
+            [("error_signature", ASCENDING), ("created_at", DESCENDING)],
+            name="idx_incidents_signature_created",
+        )
     except Exception as exc:
         logger.warning("Index error on incidents: %s", exc)
 

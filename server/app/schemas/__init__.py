@@ -3,6 +3,13 @@
 from typing import Generic, Optional, TypeVar
 from pydantic import BaseModel
 
+from app.schemas.analytics import (
+    CrossProjectIncidentSummary,
+    IncidentHistoryResponse,
+    ProjectAnalyticsResponse,
+    RecurringErrorItem,
+    RecurringErrorsResponse,
+)
 from app.schemas.incident import IncidentCreate, IncidentResponse
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.project import ProjectCreate, ProjectResponse
@@ -38,4 +45,9 @@ __all__ = [
     "ErrorContext",
     "IncidentCreate",
     "IncidentResponse",
+    "RecurringErrorItem",
+    "RecurringErrorsResponse",
+    "ProjectAnalyticsResponse",
+    "CrossProjectIncidentSummary",
+    "IncidentHistoryResponse",
 ]

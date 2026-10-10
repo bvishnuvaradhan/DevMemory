@@ -1,12 +1,13 @@
-"""Incident registration and retrieval API routes."""
+"""Incident registration, retrieval, and historical analysis API routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pymongo.database import Database
 
 from app.db.mongo import get_database
+from app.schemas.analytics import IncidentHistoryResponse
 from app.schemas.incident import IncidentCreate, IncidentResponse
 from app.schemas import ResponseEnvelope
-from app.services import incident_service
+from app.services import analytics_service, incident_service
 
 router = APIRouter(prefix="/incidents", tags=["Incidents"])
 
@@ -41,3 +42,17 @@ async def get_incident_endpoint(
             detail=f"Incident with ID '{incident_id}' not found.",
         )
     return ResponseEnvelope[IncidentResponse](success=True, data=incident, error=None)
+
+
+@router.get(
+    "/{incident_id}/history",
+    response_model=ResponseEnvelope[IncidentHistoryResponse],
+    summary="Retrieve same-project and privacy-sanitized cross-project historical matches",
+)
+async def get_incident_history_endpoint(
+    incident_id: str,
+    limit: int = Query(default=10, ge=1, le=50, description="Max matching incidents per partition"),
+    db: Database = Depends(get_database),
+):
+    history = analytics_service.get_incident_history(db, incident_id=incident_id, limit=limit)
+    return ResponseEnvelope[IncidentHistoryResponse](success=True, data=history, error=None)

@@ -1,16 +1,17 @@
-"""Project registration, retrieval, and nested project history API routes."""
+"""Project registration, retrieval, history, and analytics API routes."""
 
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pymongo.database import Database
 
 from app.db.mongo import get_database
+from app.schemas.analytics import ProjectAnalyticsResponse, RecurringErrorsResponse
 from app.schemas.incident import IncidentResponse
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.project import ProjectCreate, ProjectResponse
 from app.schemas.run import RunResponse
 from app.schemas import ResponseEnvelope
-from app.services import incident_service, project_service, run_service
+from app.services import analytics_service, incident_service, project_service, run_service
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
 
@@ -73,7 +74,9 @@ async def list_project_runs_endpoint(
     status: Optional[str] = Query(default=None, description="Filter by 'success' or 'failure'"),
     db: Database = Depends(get_database),
 ):
-    runs = run_service.list_project_runs(db, project_id=project_id, limit=limit, skip=skip, status_filter=status)
+    runs = run_service.list_project_runs(
+        db, project_id=project_id, limit=limit, skip=skip, status_filter=status
+    )
     return ResponseEnvelope[PaginatedResponse[RunResponse]](success=True, data=runs, error=None)
 
 
@@ -88,5 +91,34 @@ async def list_project_incidents_endpoint(
     skip: int = Query(default=0, ge=0),
     db: Database = Depends(get_database),
 ):
-    incidents = incident_service.list_project_incidents(db, project_id=project_id, limit=limit, skip=skip)
+    incidents = incident_service.list_project_incidents(
+        db, project_id=project_id, limit=limit, skip=skip
+    )
     return ResponseEnvelope[PaginatedResponse[IncidentResponse]](success=True, data=incidents, error=None)
+
+
+@router.get(
+    "/{project_id}/analytics/recurring",
+    response_model=ResponseEnvelope[RecurringErrorsResponse],
+    summary="Aggregate and rank recurring errors for a project",
+)
+async def get_recurring_errors_endpoint(
+    project_id: str,
+    limit: int = Query(default=10, ge=1, le=50, description="Max number of recurring error groups"),
+    db: Database = Depends(get_database),
+):
+    recurring = analytics_service.get_recurring_errors(db, project_id=project_id, limit=limit)
+    return ResponseEnvelope[RecurringErrorsResponse](success=True, data=recurring, error=None)
+
+
+@router.get(
+    "/{project_id}/analytics",
+    response_model=ResponseEnvelope[ProjectAnalyticsResponse],
+    summary="Get summary metrics and health overview for a project",
+)
+async def get_project_analytics_endpoint(
+    project_id: str,
+    db: Database = Depends(get_database),
+):
+    analytics = analytics_service.get_project_analytics(db, project_id=project_id)
+    return ResponseEnvelope[ProjectAnalyticsResponse](success=True, data=analytics, error=None)
