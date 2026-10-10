@@ -10,6 +10,7 @@ from app.schemas.fix import (
     FixOutcomeUpdate,
     FixVerificationRecordRequest,
 )
+from app.schemas.pagination import PaginatedResponse
 from app.schemas import ResponseEnvelope
 from app.services import fix_service
 
@@ -17,7 +18,28 @@ router = APIRouter(prefix="/fixes", tags=["Fix Outcomes"])
 
 
 @router.get(
+    "",
+    response_model=ResponseEnvelope[PaginatedResponse[FixOutcomeResponse]],
+    summary="List fixes (all or filtered by project/incident)",
+)
+async def list_fixes_endpoint(
+    project_id: Optional[str] = Query(default=None, description="Filter by project ID"),
+    incident_id: Optional[str] = Query(default=None, description="Filter by incident ID"),
+    limit: int = Query(default=50, ge=1, le=100),
+    skip: int = Query(default=0, ge=0),
+    db: Database = Depends(get_database),
+):
+    fixes = fix_service.list_fixes(
+        db, project_id=project_id, incident_id=incident_id, limit=limit, skip=skip
+    )
+    return ResponseEnvelope[PaginatedResponse[FixOutcomeResponse]](
+        success=True, data=fixes, error=None
+    )
+
+
+@router.get(
     "/verified",
+
     response_model=ResponseEnvelope[List[FixOutcomeResponse]],
     summary="Query verified successful fixes for recommendations",
 )

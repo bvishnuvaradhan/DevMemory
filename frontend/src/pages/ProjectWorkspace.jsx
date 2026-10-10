@@ -11,6 +11,7 @@ import {
   CheckCircle,
   ExternalLink,
   History,
+  ShieldCheck,
 } from 'lucide-react';
 import Badge from '../components/common/Badge';
 import LoadingSpinner from '../components/common/LoadingSpinner';
@@ -18,6 +19,7 @@ import RecentRunsTable from '../components/dashboard/RecentRunsTable';
 import ErrorInspector from '../components/errors/ErrorInspector';
 import PerformanceLab from '../components/performance/PerformanceLab';
 import EventsAuditTable from '../components/events/EventsAuditTable';
+import LLMSecurityMonitor from '../components/security/LLMSecurityMonitor';
 import {
   fetchProject,
   fetchProjectRuns,
@@ -26,6 +28,7 @@ import {
   fetchProjectEvents,
 } from '../api/devmemoryApi';
 
+
 export default function ProjectWorkspace() {
   const { projectId } = useParams();
   const location = useLocation();
@@ -33,7 +36,7 @@ export default function ProjectWorkspace() {
 
   // Detect subpath tab if present (e.g. /projects/proj_auth_service/errors)
   const currentSubTab = location.pathname.split(`/projects/${projectId}/`)[1]?.split('/')[0];
-  const validTabs = ['overview', 'runs', 'errors', 'memory', 'performance', 'events'];
+  const validTabs = ['overview', 'runs', 'errors', 'memory', 'performance', 'events', 'security'];
   const initialTab = validTabs.includes(currentSubTab) ? currentSubTab : 'overview';
 
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -97,6 +100,7 @@ export default function ProjectWorkspace() {
     { id: 'memory', label: 'Memory Bank', icon: BrainCircuit },
     { id: 'performance', label: 'Performance Lab', icon: TrendingUp },
     { id: 'events', label: 'Events & Audit', icon: History, count: events.length },
+    { id: 'security', label: 'LLM Security Monitor', icon: ShieldCheck },
   ];
 
   return (
@@ -314,8 +318,11 @@ export default function ProjectWorkspace() {
           isMock={isMock}
         />
       )}
+
+      {activeTab === 'security' && (
+        <LLMSecurityMonitor projectId={projectId} />
+      )}
       </div>
     </div>
   );
 }
-

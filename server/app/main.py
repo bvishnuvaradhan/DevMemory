@@ -12,6 +12,7 @@ from pymongo.errors import PyMongoError
 from app.config import get_settings
 from app.db.indexes import init_indexes
 from app.db.mongo import mongo_manager
+from app.routes.analytics import router as analytics_router
 from app.routes.fixes import router as fixes_router
 from app.routes.health import router as health_router
 from app.routes.incidents import router as incidents_router
@@ -21,6 +22,7 @@ from app.routes.performance import router as performance_router
 from app.routes.projects import router as projects_router
 from app.routes.runs import router as runs_router
 from app.schemas import ResponseEnvelope
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -150,8 +152,10 @@ def create_app() -> FastAPI:
     app.include_router(performance_router, prefix="/api/v1")
     app.include_router(knowledge_router, prefix="/api/v1")
     app.include_router(llm_audits_router, prefix="/api/v1")
+    app.include_router(analytics_router, prefix="/api/v1")
 
     return app
+
 
 
 app = create_app()

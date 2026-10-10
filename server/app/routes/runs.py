@@ -29,6 +29,25 @@ async def ingest_run_endpoint(
 
 
 @router.get(
+    "",
+    response_model=ResponseEnvelope[PaginatedResponse[RunResponse]],
+    summary="List command execution runs (all or filtered by project)",
+)
+async def list_runs_endpoint(
+    project_id: Optional[str] = Query(default=None, description="Filter by project ID"),
+    status: Optional[str] = Query(default=None, description="Filter by status (success/failure)"),
+    limit: int = Query(default=50, ge=1, le=100),
+    skip: int = Query(default=0, ge=0),
+    db: Database = Depends(get_database),
+):
+    runs = run_service.list_runs(
+        db, project_id=project_id, limit=limit, skip=skip, status_filter=status
+    )
+    return ResponseEnvelope[PaginatedResponse[RunResponse]](success=True, data=runs, error=None)
+
+
+
+@router.get(
     "/{event_id}",
     response_model=ResponseEnvelope[RunResponse],
     summary="Get command run by event ID",

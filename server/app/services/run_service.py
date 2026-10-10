@@ -169,3 +169,42 @@ def list_project_runs(
         limit=limit,
         skip=skip,
     )
+
+
+def list_runs(
+    db: Database,
+    project_id: Optional[str] = None,
+    limit: int = 50,
+    skip: int = 0,
+    status_filter: Optional[str] = None,
+) -> PaginatedResponse[RunResponse]:
+    """Retrieve paginated runs across all projects or filtered by project ID."""
+    limit = max(1, min(limit, 100))
+    skip = max(0, skip)
+
+    filter_query: dict = {}
+    if project_id:
+        filter_query["project_id"] = project_id
+
+    if status_filter:
+        norm_status = status_filter.strip().lower()
+        if norm_status in ("success", "ok", "0"):
+            filter_query["exit_code"] = 0
+        elif norm_status in ("failure", "failed", "error", "1"):
+            filter_query["exit_code"] = {"$ne": 0}
+
+    total = db.command_runs.count_documents(filter_query)
+    cursor = (
+        db.command_runs.find(filter_query, {"_id": 0})
+        .sort("started_at", DESCENDING)
+        .skip(skip)
+        .limit(limit)
+    )
+    items = [RunResponse(**d) for d in cursor]
+
+    return PaginatedResponse[RunResponse](
+        items=items,
+        total=total,
+        limit=limit,
+        skip=skip,
+    )

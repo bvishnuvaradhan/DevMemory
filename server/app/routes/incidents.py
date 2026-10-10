@@ -115,6 +115,26 @@ async def create_incident_endpoint(
 
 
 @router.get(
+    "",
+    response_model=ResponseEnvelope[PaginatedResponse[IncidentResponse]],
+    summary="List incidents (all or filtered by project)",
+)
+async def list_incidents_endpoint(
+    project_id: Optional[str] = Query(default=None, description="Filter by project ID"),
+    limit: int = Query(default=50, ge=1, le=100),
+    skip: int = Query(default=0, ge=0),
+    db: Database = Depends(get_database),
+):
+    incidents = incident_service.list_incidents(
+        db, project_id=project_id, limit=limit, skip=skip
+    )
+    return ResponseEnvelope[PaginatedResponse[IncidentResponse]](
+        success=True, data=incidents, error=None
+    )
+
+
+
+@router.get(
     "/{incident_id}",
     response_model=ResponseEnvelope[IncidentResponse],
     summary="Get incident details by ID",

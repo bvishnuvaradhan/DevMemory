@@ -150,3 +150,29 @@ def list_project_incidents(
         limit=limit,
         skip=skip,
     )
+
+
+def list_incidents(
+    db: Database,
+    project_id: Optional[str] = None,
+    limit: int = 50,
+    skip: int = 0,
+) -> PaginatedResponse[IncidentResponse]:
+    """Retrieve paginated incidents across all projects or filtered by project ID."""
+    limit = max(1, min(limit, 100))
+    skip = max(0, skip)
+
+    filter_query: dict = {}
+    if project_id:
+        filter_query["project_id"] = project_id
+
+    total = db.incidents.count_documents(filter_query)
+    cursor = db.incidents.find(filter_query, {"_id": 0}).sort("created_at", DESCENDING).skip(skip).limit(limit)
+    items = [IncidentResponse(**d) for d in cursor]
+
+    return PaginatedResponse[IncidentResponse](
+        items=items,
+        total=total,
+        limit=limit,
+        skip=skip,
+    )

@@ -538,3 +538,37 @@ def query_verified_fixes(
         .limit(limit)
     )
     return [FixOutcomeResponse(**d) for d in cursor]
+
+
+def list_fixes(
+    db: Database,
+    project_id: Optional[str] = None,
+    incident_id: Optional[str] = None,
+    limit: int = 50,
+    skip: int = 0,
+) -> PaginatedResponse[FixOutcomeResponse]:
+    """Retrieve paginated fixes across all projects or filtered by project/incident ID."""
+    limit = max(1, min(limit, 100))
+    skip = max(0, skip)
+
+    filter_query: dict = {}
+    if project_id:
+        filter_query["project_id"] = project_id
+    if incident_id:
+        filter_query["incident_id"] = incident_id
+
+    total = db.fix_outcomes.count_documents(filter_query)
+    cursor = (
+        db.fix_outcomes.find(filter_query, {"_id": 0})
+        .sort("created_at", DESCENDING)
+        .skip(skip)
+        .limit(limit)
+    )
+    items = [FixOutcomeResponse(**d) for d in cursor]
+
+    return PaginatedResponse[FixOutcomeResponse](
+        items=items,
+        total=total,
+        limit=limit,
+        skip=skip,
+    )

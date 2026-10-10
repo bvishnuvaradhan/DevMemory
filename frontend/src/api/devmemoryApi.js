@@ -1,9 +1,10 @@
 /**
  * DevMemory API Client Layer
  *
- * This service abstracts HTTP requests to the FastAPI backend (Member 2).
- * When the backend is unreachable or VITE_USE_MOCK_DATA=true, it falls back
- * gracefully to structured mock demonstration data, clearly signaling mock state.
+ * This service abstracts HTTP requests to the FastAPI backend.
+ * Unwraps ResponseEnvelope and PaginatedResponse structures.
+ * Falls back to demonstration data ONLY if the backend service is offline
+ * or if VITE_USE_MOCK_DATA is explicitly enabled.
  */
 
 import {
@@ -25,11 +26,7 @@ let isBackendLive = false;
 
 /**
  * Safely requests a DevMemory backend API endpoint.
- * - Confirms response.ok before attempting to parse or treat as successful
- * - Handles HTTP 500, 502, 504, 404, network connection refused, or timeouts gracefully
- * - Retains clean diagnostic warning logs without exposing sensitive information
- * - Sets isBackendLive state accurately
- * - Ensures mock fallback data is activated without crashing React views
+ * Accurately tracks isBackendLive.
  */
 async function safeApiFetch(endpoint, options = {}) {
   if (FORCE_MOCK) {
@@ -38,7 +35,7 @@ async function safeApiFetch(endpoint, options = {}) {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
 
     const res = await fetch(`${BASE_URL}${endpoint}`, {
       ...options,
@@ -47,34 +44,62 @@ async function safeApiFetch(endpoint, options = {}) {
 
     clearTimeout(timeoutId);
 
+    // If we received any HTTP response from the server, the backend is reachable
+    isBackendLive = true;
+
     if (!res.ok) {
-      console.warn(
-        `[DevMemory API] HTTP ${res.status} (${res.statusText || 'Error'}) from ${endpoint}. Gracefully falling back to demonstration dataset.`
-      );
-      isBackendLive = false;
-      return { ok: false, data: null, status: res.status, isMock: true };
+      let errDetail = `HTTP ${res.status} (${res.statusText || 'Error'})`;
+      try {
+        const errJson = await res.json();
+        errDetail = errJson.error || errJson.detail || errDetail;
+      } catch (_) {}
+      console.warn(`[DevMemory API] ${endpoint} returned error:`, errDetail);
+      return { ok: false, data: null, status: res.status, isMock: false, error: errDetail };
     }
 
     const contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
-      console.warn(
-        `[DevMemory API] Non-JSON payload received from ${endpoint} (Content-Type: ${contentType}). Falling back to demonstration dataset.`
-      );
-      isBackendLive = false;
-      return { ok: false, data: null, status: res.status, isMock: true };
+      console.warn(`[DevMemory API] Non-JSON payload received from ${endpoint}`);
+      return { ok: false, data: null, status: res.status, isMock: false, error: 'Non-JSON response' };
     }
 
     const data = await res.json();
-    isBackendLive = true;
     return { ok: true, data, status: res.status, isMock: false };
   } catch (err) {
-    const reason = err.name === 'AbortError' ? 'Request timed out after 3.5s' : err.message;
-    console.warn(
-      `[DevMemory API] Network request to ${endpoint} failed (${reason}). Falling back to demonstration dataset.`
-    );
+    const reason = err.name === 'AbortError' ? 'Request timed out after 4.0s' : err.message;
+    console.warn(`[DevMemory API] Network request to ${endpoint} failed (${reason}).`);
     isBackendLive = false;
     return { ok: false, data: null, status: null, isMock: true, error: reason };
   }
+}
+
+/**
+ * Unwraps FastAPI ResponseEnvelope: { success: true, data: ..., error: null }
+ */
+function unwrapData(result) {
+  if (!result || !result.ok) return null;
+  const payload = result.data;
+  if (payload && typeof payload === 'object' && 'success' in payload && 'data' in payload) {
+    return payload.data;
+  }
+  return payload;
+}
+
+/**
+ * Unwraps paginated or plain list responses into a JavaScript Array.
+ * Handles:
+ * - Plain Array: [ ... ]
+ * - PaginatedResponse: { items: [ ... ], total: N, ... }
+ * - ResponseEnvelope wrapping either of the above
+ */
+function unwrapList(result) {
+  const unwrapped = unwrapData(result);
+  if (!unwrapped) return null;
+  if (Array.isArray(unwrapped)) return unwrapped;
+  if (unwrapped && typeof unwrapped === 'object' && Array.isArray(unwrapped.items)) {
+    return unwrapped.items;
+  }
+  return null;
 }
 
 export async function checkBackendHealth() {
@@ -95,6 +120,10 @@ export function normalizeProject(p) {
     ...p,
     id: p.id || p.project_id || p._id,
     name: p.name || p.project_name || p.id,
+    description: p.description || '',
+    language: p.language || '',
+    framework: p.framework || '',
+    repository: p.repository || '',
     totalRuns: p.totalRuns !== undefined ? p.totalRuns : (p.total_runs || 0),
     failureCount: p.failureCount !== undefined ? p.failureCount : (p.failure_count || 0),
     verifiedFixCount: p.verifiedFixCount !== undefined ? p.verifiedFixCount : (p.verified_fix_count || 0),
@@ -112,11 +141,14 @@ export function normalizeRun(r) {
     eventId: r.eventId || r.event_id || r.id,
     projectId: r.projectId || r.project_id,
     projectName: r.projectName || r.project_name || r.projectId || r.project_id,
+    command: r.command || '',
     exitCode: r.exitCode !== undefined ? r.exitCode : (r.exit_code !== undefined ? r.exit_code : 0),
+    status: r.status || (r.exit_code === 0 ? 'success' : 'failure'),
     durationMs: r.durationMs !== undefined ? r.durationMs : (r.duration_ms || 0),
+    timestamp: r.timestamp || r.started_at || r.created_at,
     sourceFile: r.sourceFile || r.source_file,
     lineNumber: r.lineNumber !== undefined ? r.lineNumber : r.line_number,
-    errorSummary: r.errorSummary || r.error_summary || r.errorMessage || r.error_message,
+    errorSummary: r.errorSummary || r.error_summary || r.errorMessage || r.error_message || r.stderr || null,
   };
 }
 
@@ -130,16 +162,17 @@ export function normalizeIncident(inc) {
     projectName: inc.projectName || inc.project_name || inc.projectId,
     errorType: inc.errorType || inc.error_type || 'UnknownError',
     errorMessage: inc.errorMessage || inc.error_message || '',
-    stackTrace: inc.stackTrace || inc.stack_trace,
-    sourceLocation: inc.sourceLocation || inc.source_location || (inc.source_file ? {
-      file: inc.source_file,
-      line: inc.line_number,
-      column: inc.column_number,
-      snippet: inc.code_snippet,
+    errorSignature: inc.errorSignature || inc.error_signature,
+    sourceLocation: inc.sourceLocation || inc.source_location || (inc.file_path ? {
+      file: inc.file_path,
+      line: inc.line,
+      column: inc.column,
+      snippet: inc.source_snippet,
     } : null),
     aiDiagnosis: inc.aiDiagnosis || inc.ai_diagnosis,
     historicalMatches: inc.historicalMatches || inc.historical_matches || [],
     fixOutcome: inc.fixOutcome || inc.fix_outcome,
+    createdAt: inc.createdAt || inc.created_at,
   };
 }
 
@@ -190,8 +223,9 @@ export function normalizeEvent(evt) {
 
 export async function fetchGlobalOverview() {
   const result = await safeApiFetch('/analytics/overview');
-  if (result.ok && result.data) {
-    const raw = result.data;
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    const raw = data;
     const normalized = {
       stats: raw.stats || raw,
       projects: Array.isArray(raw.projects) ? raw.projects.map(normalizeProject) : [],
@@ -211,258 +245,313 @@ export async function fetchGlobalOverview() {
     return { data: normalized, isMock: false };
   }
 
+  if (!isBackendLive || FORCE_MOCK) {
+    return {
+      data: {
+        stats: MOCK_GLOBAL_STATS,
+        projects: MOCK_PROJECTS.map(normalizeProject),
+        recentRuns: MOCK_RECENT_RUNS.map(normalizeRun),
+        recurringErrors: MOCK_RECURRING_ERRORS,
+        verifiedFixes: MOCK_VERIFIED_FIXES,
+        performanceTrend: MOCK_PERFORMANCE_TREND,
+      },
+      isMock: true,
+    };
+  }
+
   return {
     data: {
-      stats: MOCK_GLOBAL_STATS,
-      projects: MOCK_PROJECTS.map(normalizeProject),
-      recentRuns: MOCK_RECENT_RUNS.map(normalizeRun),
-      recurringErrors: MOCK_RECURRING_ERRORS,
-      verifiedFixes: MOCK_VERIFIED_FIXES,
-      performanceTrend: MOCK_PERFORMANCE_TREND,
+      stats: { totalProjects: 0, totalRuns: 0, totalFailures: 0, failureRate: '0%', verifiedFixes: 0, verifiedFixRate: '0%', recurringErrorsCount: 0, medianExecutionTimeMs: 0 },
+      projects: [],
+      recentRuns: [],
+      recurringErrors: [],
+      verifiedFixes: [],
+      performanceTrend: [],
     },
-    isMock: true,
+    isMock: false,
+    error: result.error || 'Failed to load telemetry overview',
   };
 }
 
 export async function fetchProjects() {
   const result = await safeApiFetch('/projects');
-  if (result.ok && Array.isArray(result.data)) {
+  const list = unwrapList(result);
+  if (result.ok && list !== null) {
     return {
-      data: result.data.map(normalizeProject),
+      data: list.map(normalizeProject),
       isMock: false,
     };
   }
 
-  return { data: MOCK_PROJECTS.map(normalizeProject), isMock: true };
+  if (!isBackendLive || FORCE_MOCK) {
+    return { data: MOCK_PROJECTS.map(normalizeProject), isMock: true };
+  }
+
+  return { data: [], isMock: false, error: result.error || 'Failed to fetch projects' };
 }
 
 export async function fetchProject(projectId) {
   const result = await safeApiFetch(`/projects/${projectId}`);
-  if (result.ok && result.data) {
-    return { data: normalizeProject(result.data), isMock: false };
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    return { data: normalizeProject(data), isMock: false };
   }
 
-  const proj = MOCK_PROJECTS.find((p) => p.id === projectId) || MOCK_PROJECTS[0];
-  return { data: normalizeProject(proj), isMock: true };
+  if (!isBackendLive || FORCE_MOCK) {
+    const proj = MOCK_PROJECTS.find((p) => p.id === projectId) || MOCK_PROJECTS[0];
+    return { data: normalizeProject(proj), isMock: true };
+  }
+
+  return { data: null, isMock: false, error: result.error || 'Project not found' };
 }
 
 export async function fetchProjectRuns(projectId) {
   const result = await safeApiFetch(`/projects/${projectId}/runs`);
-  if (result.ok && Array.isArray(result.data)) {
+  const list = unwrapList(result);
+  if (result.ok && list !== null) {
     return {
-      data: result.data.map(normalizeRun),
+      data: list.map(normalizeRun),
       isMock: false,
     };
   }
 
-  const runs = MOCK_RECENT_RUNS.filter((r) => r.projectId === projectId);
-  const selectedRuns = runs.length ? runs : MOCK_RECENT_RUNS;
-  return { data: selectedRuns.map(normalizeRun), isMock: true };
+  if (!isBackendLive || FORCE_MOCK) {
+    const runs = MOCK_RECENT_RUNS.filter((r) => r.projectId === projectId);
+    const selectedRuns = runs.length ? runs : MOCK_RECENT_RUNS;
+    return { data: selectedRuns.map(normalizeRun), isMock: true };
+  }
+
+  return { data: [], isMock: false, error: result.error || 'Failed to fetch project runs' };
 }
 
 export async function fetchProjectIncidents(projectId) {
   const result = await safeApiFetch(`/projects/${projectId}/incidents`);
-  if (result.ok && Array.isArray(result.data)) {
+  const list = unwrapList(result);
+  if (result.ok && list !== null) {
     return {
-      data: result.data.map(normalizeIncident),
+      data: list.map(normalizeIncident),
       isMock: false,
     };
   }
 
-  const incidents = projectId
-    ? MOCK_INCIDENTS.filter((inc) => inc.projectId === projectId)
-    : MOCK_INCIDENTS;
+  if (!isBackendLive || FORCE_MOCK) {
+    const incidents = projectId
+      ? MOCK_INCIDENTS.filter((inc) => inc.projectId === projectId)
+      : MOCK_INCIDENTS;
+    return { data: incidents.map(normalizeIncident), isMock: true };
+  }
 
-  return { data: incidents.map(normalizeIncident), isMock: true };
+  return { data: [], isMock: false, error: result.error || 'Failed to fetch project incidents' };
 }
 
 export async function fetchIncident(incidentId) {
   const result = await safeApiFetch(`/incidents/${incidentId}`);
-  if (result.ok && result.data) {
-    return { data: normalizeIncident(result.data), isMock: false };
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    return { data: normalizeIncident(data), isMock: false };
   }
 
-  const incident = MOCK_INCIDENTS.find((i) => i.incidentId === incidentId) || MOCK_INCIDENTS[0];
-  return { data: normalizeIncident(incident), isMock: true };
+  if (!isBackendLive || FORCE_MOCK) {
+    const incident = MOCK_INCIDENTS.find((i) => i.incidentId === incidentId) || MOCK_INCIDENTS[0];
+    return { data: normalizeIncident(incident), isMock: true };
+  }
+
+  return { data: null, isMock: false, error: result.error || 'Incident not found' };
 }
 
 export async function fetchProjectPerformance(projectId) {
   const result = await safeApiFetch(`/projects/${projectId}/performance`);
-  if (result.ok && result.data) {
-    return { data: normalizePerformance(result.data), isMock: false };
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    return { data: normalizePerformance(data), isMock: false };
   }
 
-  const perf = MOCK_PERFORMANCE_BY_PROJECT[projectId] || {
-    projectId,
-    projectName: projectId,
-    baselineMs: null,
-    medianMs: null,
-    sampleCount: 0,
-    runs: [],
-  };
+  if (!isBackendLive || FORCE_MOCK) {
+    const perf = MOCK_PERFORMANCE_BY_PROJECT[projectId] || {
+      projectId,
+      projectName: projectId,
+      baselineMs: null,
+      medianMs: null,
+      sampleCount: 0,
+      runs: [],
+    };
+    return { data: normalizePerformance(perf), isMock: true };
+  }
 
-  return { data: normalizePerformance(perf), isMock: true };
+  return {
+    data: { projectId, projectName: projectId, baselineMs: null, medianMs: null, runs: [] },
+    isMock: false,
+    error: result.error || 'Failed to fetch performance data',
+  };
 }
 
 export async function fetchGlobalEvents() {
   const result = await safeApiFetch('/events');
-  if (result.ok && Array.isArray(result.data)) {
+  const list = unwrapList(result);
+  if (result.ok && list !== null) {
     return {
-      data: result.data.map(normalizeEvent),
+      data: list.map(normalizeEvent),
       isMock: false,
     };
   }
 
-  return {
-    data: MOCK_EVENTS.map(normalizeEvent),
-    isMock: true,
-  };
+  if (!isBackendLive || FORCE_MOCK) {
+    return {
+      data: MOCK_EVENTS.map(normalizeEvent),
+      isMock: true,
+    };
+  }
+
+  return { data: [], isMock: false, error: result.error || 'Failed to fetch events' };
 }
 
 export async function fetchProjectEvents(projectId) {
   const result = await safeApiFetch(`/projects/${projectId}/events`);
-  if (result.ok && Array.isArray(result.data)) {
+  const list = unwrapList(result);
+  if (result.ok && list !== null) {
     return {
-      data: result.data.map(normalizeEvent),
+      data: list.map(normalizeEvent),
       isMock: false,
     };
   }
 
-  const events = projectId
-    ? MOCK_EVENTS.filter((e) => e.projectId === projectId)
-    : MOCK_EVENTS;
+  if (!isBackendLive || FORCE_MOCK) {
+    const events = projectId
+      ? MOCK_EVENTS.filter((e) => e.projectId === projectId)
+      : MOCK_EVENTS;
+    return {
+      data: events.map(normalizeEvent),
+      isMock: true,
+    };
+  }
 
-  return {
-    data: events.map(normalizeEvent),
-    isMock: true,
-  };
+  return { data: [], isMock: false, error: result.error || 'Failed to fetch project events' };
 }
 
 export async function fetchAllRuns() {
   const result = await safeApiFetch('/runs');
-  if (result.ok && Array.isArray(result.data)) {
+  const list = unwrapList(result);
+  if (result.ok && list !== null) {
     return {
-      data: result.data.map(normalizeRun),
+      data: list.map(normalizeRun),
       isMock: false,
     };
   }
 
-  return {
-    data: MOCK_RECENT_RUNS.map(normalizeRun),
-    isMock: true,
-  };
+  if (!isBackendLive || FORCE_MOCK) {
+    return {
+      data: MOCK_RECENT_RUNS.map(normalizeRun),
+      isMock: true,
+    };
+  }
+
+  return { data: [], isMock: false, error: result.error || 'Failed to fetch command runs' };
 }
 
 export async function fetchAllIncidents() {
   const result = await safeApiFetch('/incidents');
-  if (result.ok && Array.isArray(result.data)) {
+  const list = unwrapList(result);
+  if (result.ok && list !== null) {
     return {
-      data: result.data.map(normalizeIncident),
+      data: list.map(normalizeIncident),
       isMock: false,
     };
   }
 
-  return {
-    data: MOCK_INCIDENTS.map(normalizeIncident),
-    isMock: true,
-  };
+  if (!isBackendLive || FORCE_MOCK) {
+    return {
+      data: MOCK_INCIDENTS.map(normalizeIncident),
+      isMock: true,
+    };
+  }
+
+  return { data: [], isMock: false, error: result.error || 'Failed to fetch incidents' };
 }
 
 export async function fetchAllFixes() {
   const result = await safeApiFetch('/fixes');
-  if (result.ok && Array.isArray(result.data)) {
-    return { data: result.data, isMock: false };
+  const list = unwrapList(result);
+  if (result.ok && list !== null) {
+    return { data: list, isMock: false };
   }
 
-  const combinedFixes = [
-    {
-      id: 'fix_01',
-      projectId: 'proj_auth_service',
-      projectName: 'auth-service',
-      errorType: 'ExpiredSignatureError',
-      solutionSummary: 'Added leeway window (leeway=30s) to jwt.decode() and refresh token clock skew tolerance',
-      verificationMethod: 'devmemory run -- pytest tests/test_token_refresh.py -k test_clock_skew',
-      testResult: '3 passed, 0 failed in 0.42s (exit code: 0)',
-      status: 'VERIFIED',
-      verifiedAt: '2026-10-09T16:45:00Z',
-      recurrenceCountAfterFix: 0,
-      author: 'AI Recommendation + Developer Verification',
-      relatedIncidentId: 'inc_auth_01',
-    },
-    {
-      id: 'fix_02',
-      projectId: 'proj_data_pipeline',
-      projectName: 'data-pipeline',
-      errorType: 'OutOfMemoryError (CUDA)',
-      solutionSummary: 'Implemented gradient checkpointing and dynamic batch sizing with torch.cuda.empty_cache() on fallback',
-      verificationMethod: 'devmemory run -- python -m pipeline.preprocess --eval-batch-memory',
-      testResult: '1 passed in 2.14s (exit code: 0)',
-      status: 'VERIFIED',
-      verifiedAt: '2026-10-09T14:10:00Z',
-      recurrenceCountAfterFix: 0,
-      author: 'AI Recommendation + Developer Verification',
-      relatedIncidentId: 'inc_cuda_02',
-    },
-    {
-      id: 'fix_03',
-      projectId: 'proj_payment_worker',
-      projectName: 'payment-worker',
-      errorType: 'StripeIdempotencyKeyError',
-      solutionSummary: 'Scoped idempotency keys with SHA-256 payload digest rather than raw user_id timestamp',
-      verificationMethod: 'devmemory run -- npm test -- tests/idempotency.test.ts',
-      testResult: '5 passed, 0 failed in 0.38s (exit code: 0)',
-      status: 'VERIFIED',
-      verifiedAt: '2026-10-08T19:30:00Z',
-      recurrenceCountAfterFix: 0,
-      author: 'Cross-Project Memory Hit (from checkout-web) + Verified',
-      relatedIncidentId: 'inc_worker_03',
-    },
-    {
-      id: 'fix_04',
-      projectId: 'proj_data_pipeline',
-      projectName: 'data-pipeline',
-      errorType: 'OutOfMemoryError (CUDA)',
-      solutionSummary: 'Add torch.inference_mode() and detach tensor features to CPU RAM immediately',
-      verificationMethod: 'devmemory run -- python -m pipeline.preprocess --eval-batch-memory',
-      testResult: 'Awaiting execution of verification command',
-      status: 'PENDING',
-      verifiedAt: null,
-      recurrenceCountAfterFix: 0,
-      author: 'AI Recommendation',
-      relatedIncidentId: 'inc_cuda_02',
-    },
-    {
-      id: 'fix_05',
-      projectId: 'proj_payment_worker',
-      projectName: 'payment-worker',
-      errorType: 'SIGKILL (Container Out of Memory)',
-      solutionSummary: 'Increased container memory limit to 512MB and added BullMQ concurrency cap',
-      verificationMethod: 'devmemory run -- npm run test:load',
-      testResult: 'Process spiked again under 10k messages/sec surge (exit code: 137)',
-      status: 'RECURRING',
-      verifiedAt: null,
-      recurrenceCountAfterFix: 2,
-      author: 'AI Recommendation + Manual Adjustments',
-      relatedIncidentId: 'inc_sys_04',
-    },
-  ];
+  if (!isBackendLive || FORCE_MOCK) {
+    return { data: MOCK_VERIFIED_FIXES, isMock: true };
+  }
 
-  return { data: combinedFixes, isMock: true };
+  return { data: [], isMock: false, error: result.error || 'Failed to fetch fixes' };
 }
 
 export async function fetchAllPerformance() {
   const result = await safeApiFetch('/analytics/performance');
-  if (result.ok && result.data) {
-    return { data: result.data, isMock: false };
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    return { data, isMock: false };
+  }
+
+  if (!isBackendLive || FORCE_MOCK) {
+    return {
+      data: {
+        trend: MOCK_PERFORMANCE_TREND,
+        byProject: MOCK_PERFORMANCE_BY_PROJECT,
+      },
+      isMock: true,
+    };
   }
 
   return {
-    data: {
-      trend: MOCK_PERFORMANCE_TREND,
-      byProject: MOCK_PERFORMANCE_BY_PROJECT,
-    },
-    isMock: true,
+    data: { trend: [], byProject: {} },
+    isMock: false,
+    error: result.error || 'Failed to fetch performance analytics',
   };
 }
 
+// ============================================================================
+// LLM Outbound Payload Security Audits & Evidence API
+// ============================================================================
 
+export async function fetchProjectLLMAudits(projectId, params = {}) {
+  const query = new URLSearchParams(params).toString();
+  const endpoint = `/projects/${projectId}/llm-audits${query ? `?${query}` : ''}`;
+  const result = await safeApiFetch(endpoint);
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    const items = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+    return { data: { items, total: data.total ?? items.length }, isMock: false };
+  }
+  return {
+    data: { items: [], total: 0 },
+    isMock: false,
+    error: result.error || 'Failed to fetch LLM audits',
+  };
+}
+
+export async function fetchProjectLLMSecuritySummary(projectId) {
+  const result = await safeApiFetch(`/projects/${projectId}/llm-audits/summary`);
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    return { data, isMock: false };
+  }
+  return {
+    data: {
+      projectId,
+      totalRequests: 0,
+      statusCounts: {},
+      totalRedactionsApplied: 0,
+      redactionCategories: {},
+      providersUsed: [],
+      latestTransmissionAt: null,
+    },
+    isMock: false,
+    error: result.error || 'Failed to fetch security summary',
+  };
+}
+
+export async function fetchLLMAuditItem(projectId, auditId) {
+  const result = await safeApiFetch(`/projects/${projectId}/llm-audits/${auditId}`);
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    return { data, isMock: false };
+  }
+  return { data: null, isMock: false, error: result.error || 'Audit item not found' };
+}
