@@ -100,7 +100,7 @@ export default function ProjectWorkspace() {
   ];
 
   return (
-    <div className="space-y-6 p-6 max-w-7xl mx-auto">
+    <div className="space-y-6 p-3 sm:p-6 max-w-7xl mx-auto">
       {/* Top Breadcrumb */}
       <div className="flex items-center gap-2 text-xs font-mono text-slate-500">
         <Link to="/" className="hover:text-slate-900 flex items-center gap-1 transition-colors">
@@ -112,7 +112,7 @@ export default function ProjectWorkspace() {
       </div>
 
       {/* Workspace Header */}
-      <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-6 shadow-glass">
+      <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-4 sm:p-6 shadow-glass">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-600 border border-indigo-100 shadow-xs shrink-0">
@@ -130,7 +130,7 @@ export default function ProjectWorkspace() {
                 </Badge>
               </div>
               <p className="mt-1 text-xs text-slate-500">{project?.description}</p>
-              <div className="mt-2.5 flex items-center gap-2">
+              <div className="mt-2.5 flex items-center gap-2 flex-wrap">
                 <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-[10px] font-mono text-slate-700 border border-slate-200/80 font-medium">
                   {project?.language}
                 </span>
@@ -156,15 +156,22 @@ export default function ProjectWorkspace() {
         </div>
 
         {/* Tab Bar */}
-        <div className="mt-6 flex border-b border-slate-200 gap-1 overflow-x-auto">
+        <div
+          role="tablist"
+          aria-label="Project Workspace Sections"
+          className="mt-6 flex border-b border-slate-200 gap-1 overflow-x-auto"
+        >
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`workspace-tabpanel-${tab.id}`}
                 onClick={() => handleTabChange(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
+                className={`flex items-center gap-2 px-3 sm:px-4 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
                   isActive
                     ? 'border-brand-500 text-brand-600 bg-brand-50/60 font-semibold rounded-t-lg'
                     : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
@@ -190,8 +197,13 @@ export default function ProjectWorkspace() {
       </div>
 
       {/* Tab Contents */}
-      {activeTab === 'overview' && (
-        <div className="space-y-6">
+      <div
+        role="tabpanel"
+        id={`workspace-tabpanel-${activeTab}`}
+        aria-label={tabs.find((t) => t.id === activeTab)?.label}
+      >
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-5 shadow-glass">
               <span className="text-[10px] uppercase font-mono text-slate-400 font-semibold">Total Runs</span>
@@ -302,6 +314,7 @@ export default function ProjectWorkspace() {
           isMock={isMock}
         />
       )}
+      </div>
     </div>
   );
 }

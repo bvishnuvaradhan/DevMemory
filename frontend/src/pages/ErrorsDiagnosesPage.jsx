@@ -124,12 +124,12 @@ export default function ErrorsDiagnosesPage() {
   }
 
   return (
-    <div className="space-y-6 p-6 max-w-7xl mx-auto">
+    <div className="space-y-6 p-3 sm:p-6 max-w-7xl mx-auto">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 font-mono flex items-center gap-2">
-            <AlertTriangle className="h-6 w-6 text-rose-500" />
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 font-mono flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 sm:h-6 sm:w-6 text-rose-500" />
             Errors & AI Diagnoses
           </h1>
           <p className="mt-1 text-xs text-slate-500">
@@ -140,6 +140,7 @@ export default function ErrorsDiagnosesPage() {
         <button
           onClick={() => loadData(true)}
           disabled={refreshing}
+          aria-label="Refresh error incidents telemetry"
           className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2 text-xs font-mono text-slate-700 hover:bg-white hover:text-slate-900 shadow-xs hover:border-slate-300 transition-all cursor-pointer self-start sm:self-auto"
         >
           <RefreshCw className={`h-3.5 w-3.5 text-rose-500 ${refreshing ? 'animate-spin' : ''}`} />
@@ -148,7 +149,7 @@ export default function ErrorsDiagnosesPage() {
       </div>
 
       {/* Stats Overview */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3.5">
         <StatCard
           title="Active Incidents"
           value={stats.total}
@@ -178,7 +179,7 @@ export default function ErrorsDiagnosesPage() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-4 shadow-glass space-y-3">
+      <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-3.5 sm:p-4 shadow-glass space-y-3">
         <div className="flex flex-col md:flex-row md:items-center gap-3">
           {/* Search */}
           <div className="relative flex-1">
@@ -186,6 +187,7 @@ export default function ErrorsDiagnosesPage() {
             <input
               type="text"
               placeholder="Search error type, message, project, or file..."
+              aria-label="Search error incidents by message or file"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-white/90 pl-9 pr-3.5 py-2 text-xs font-mono text-slate-800 placeholder-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 shadow-xs transition-colors"
@@ -194,12 +196,13 @@ export default function ErrorsDiagnosesPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Project Filter */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-1 sm:flex-initial">
               <FolderGit2 className="h-3.5 w-3.5 text-slate-400 hidden sm:inline" />
               <select
                 value={selectedProject}
+                aria-label="Filter incidents by project"
                 onChange={(e) => setSelectedProject(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 shadow-xs cursor-pointer"
+                className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 shadow-xs cursor-pointer"
               >
                 <option value="ALL">All Projects ({projects.length})</option>
                 {projects.map((p) => (
@@ -211,12 +214,13 @@ export default function ErrorsDiagnosesPage() {
             </div>
 
             {/* Error Type Filter */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-1 sm:flex-initial">
               <AlertTriangle className="h-3.5 w-3.5 text-slate-400 hidden sm:inline" />
               <select
                 value={selectedType}
+                aria-label="Filter incidents by error type"
                 onChange={(e) => setSelectedType(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 shadow-xs cursor-pointer"
+                className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 shadow-xs cursor-pointer"
               >
                 <option value="ALL">All Error Types</option>
                 {errorTypes.map((t) => (
@@ -228,12 +232,13 @@ export default function ErrorsDiagnosesPage() {
             </div>
 
             {/* Status Filter */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-1 sm:flex-initial">
               <Filter className="h-3.5 w-3.5 text-slate-400 hidden sm:inline" />
               <select
                 value={selectedStatus}
+                aria-label="Filter incidents by verification status"
                 onChange={(e) => setSelectedStatus(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 shadow-xs cursor-pointer"
+                className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 shadow-xs cursor-pointer"
               >
                 <option value="ALL">All Statuses</option>
                 <option value="VERIFIED">Verified Fix</option>

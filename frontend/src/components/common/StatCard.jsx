@@ -13,21 +13,21 @@ export default function StatCard({
 }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl border border-white/85 bg-white/75 p-5 backdrop-blur-md shadow-glass hover:shadow-glass-hover hover:border-indigo-200/80 hover:-translate-y-0.5 transition-all duration-200 ${className}`}
+      className={`relative overflow-hidden rounded-2xl border border-white/85 bg-white/75 p-3.5 sm:p-5 backdrop-blur-md shadow-glass hover:shadow-glass-hover hover:border-indigo-200/80 hover:-translate-y-0.5 transition-all duration-200 ${className}`}
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+        <span className="text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-slate-500">
           {title}
         </span>
         {Icon && (
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-600 border border-indigo-100/80 shadow-xs">
-            <Icon className="h-4 w-4" />
+          <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-600 border border-indigo-100/80 shadow-xs shrink-0">
+            <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           </div>
         )}
       </div>
 
-      <div className="mt-3 flex items-baseline gap-2">
-        <span className="text-2xl font-bold tracking-tight text-slate-900 font-mono">
+      <div className="mt-2.5 sm:mt-3 flex items-baseline gap-1.5 sm:gap-2">
+        <span className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 font-mono truncate">
           {value}
         </span>
         {trend && (

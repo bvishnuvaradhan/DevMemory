@@ -50,11 +50,21 @@
   }
 }
 
+/* Visible accessible keyboard focus indicator */
+:focus-visible {
+  outline: 2px solid #6366F1 !important;
+  outline-offset: 2px !important;
+}
+
 /* Fallback for browsers that do not support backdrop-filter */
 @supports not (backdrop-filter: blur(12px)) {
   .glass-card,
-  .glass-panel {
-    background: rgba(255, 255, 255, 0.95) !important;
+  .glass-panel,
+  header,
+  nav,
+  aside,
+  [role="dialog"] {
+    background: rgba(255, 255, 255, 0.98) !important;
   }
 }
 

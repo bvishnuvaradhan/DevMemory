@@ -61,7 +61,7 @@ export default function GlobalDashboard({ onDataLoaded }) {
   const { stats, projects, recentRuns, recurringErrors, verifiedFixes } = overview || {};
 
   return (
-    <div className="space-y-8 p-6 max-w-7xl mx-auto">
+    <div className="space-y-6 sm:space-y-8 p-3 sm:p-6 max-w-7xl mx-auto">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -76,6 +76,7 @@ export default function GlobalDashboard({ onDataLoaded }) {
         <button
           onClick={() => loadData(true)}
           disabled={refreshing}
+          aria-label="Refresh platform telemetry"
           className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2 text-xs font-mono text-slate-700 hover:bg-white hover:text-slate-900 shadow-xs hover:border-slate-300 transition-all cursor-pointer self-start sm:self-auto"
         >
           <RefreshCw className={`h-3.5 w-3.5 text-indigo-500 ${refreshing ? 'animate-spin' : ''}`} />
@@ -84,7 +85,7 @@ export default function GlobalDashboard({ onDataLoaded }) {
       </div>
 
       {/* Global Stat Cards Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3.5">
         <StatCard
           title="Projects"
           value={stats?.totalProjects ?? 0}

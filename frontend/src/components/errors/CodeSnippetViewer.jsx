@@ -46,6 +46,7 @@ export default function CodeSnippetViewer({ sourceLocation, errorType }) {
 
         <button
           onClick={handleCopy}
+          aria-label="Copy code snippet"
           className="flex items-center gap-1 text-[11px] font-mono text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
           title="Copy snippet"
         >

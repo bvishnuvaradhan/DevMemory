@@ -49,6 +49,8 @@ export default function ErrorInspector({ incidents = [], currentProjectName }) {
               <button
                 key={inc.incidentId}
                 onClick={() => setSelectedId(inc.incidentId)}
+                aria-pressed={isSelected}
+                aria-label={`Select incident ${inc.incidentId}: ${inc.errorType}`}
                 className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-mono transition-all cursor-pointer shrink-0 border ${
                   isSelected
                     ? 'bg-rose-50 text-rose-700 border-rose-300 font-semibold shadow-xs'
@@ -65,7 +67,7 @@ export default function ErrorInspector({ incidents = [], currentProjectName }) {
       )}
 
       {/* Main Incident Card */}
-      <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-6 space-y-6 shadow-glass">
+      <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-4 sm:p-6 space-y-6 shadow-glass">
         {/* Incident Summary Header */}
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 border-b border-slate-100 pb-6">
           <div className="space-y-2">

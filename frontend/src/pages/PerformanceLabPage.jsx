@@ -131,12 +131,12 @@ export default function PerformanceLabPage() {
   const selectedProjectPerf = selectedProjectId !== 'ALL' ? byProject[selectedProjectId] : null;
 
   return (
-    <div className="space-y-6 p-6 max-w-7xl mx-auto">
+    <div className="space-y-6 p-3 sm:p-6 max-w-7xl mx-auto">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 font-mono flex items-center gap-2">
-            <TrendingUp className="h-6 w-6 text-indigo-500" />
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 font-mono flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-indigo-500" />
             Performance Lab & Regression Registry
           </h1>
           <p className="mt-1 text-xs text-slate-500">
@@ -147,6 +147,7 @@ export default function PerformanceLabPage() {
         <button
           onClick={() => loadData(true)}
           disabled={refreshing}
+          aria-label="Refresh performance telemetry"
           className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2 text-xs font-mono text-slate-700 hover:bg-white hover:text-slate-900 shadow-xs hover:border-slate-300 transition-all cursor-pointer self-start sm:self-auto"
         >
           <RefreshCw className={`h-3.5 w-3.5 text-indigo-500 ${refreshing ? 'animate-spin' : ''}`} />
@@ -155,7 +156,7 @@ export default function PerformanceLabPage() {
       </div>
 
       {/* Stats Overview */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3.5">
         <StatCard
           title="Tracked Workspaces"
           value={platformStats.trackedCount}
@@ -185,11 +186,15 @@ export default function PerformanceLabPage() {
       </div>
 
       {/* Scope Selector Bar */}
-      <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-4 shadow-glass flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+      <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-3.5 sm:p-4 shadow-glass flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           <FolderGit2 className="h-4 w-4 text-slate-400" />
-          <span className="text-xs font-mono text-slate-600 font-semibold">Workspace Scope:</span>
+          <label htmlFor="workspace-scope-select" className="text-xs font-mono text-slate-600 font-semibold">
+            Workspace Scope:
+          </label>
           <select
+            id="workspace-scope-select"
+            aria-label="Filter performance benchmarks by workspace scope"
             value={selectedProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
             className="rounded-xl border border-slate-200 bg-white/90 px-3 py-1.5 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 shadow-xs cursor-pointer font-medium"

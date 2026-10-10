@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   History,
@@ -143,9 +143,18 @@ export default function EventsAuditTable({
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [selectedProject, setSelectedProject] = useState(scopedProjectId || 'ALL');
   const [sortOrder, setSortOrder] = useState('NEWEST'); // 'NEWEST' | 'OLDEST'
-  const [selectedEventModal, setSelectedEventModal] = useState(null);
-
   const navigate = useNavigate();
+
+  // Escape key closes details modal
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && selectedEventModal) {
+        setSelectedEventModal(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedEventModal]);
 
   // Filter and sort events
   const filteredEvents = useMemo(() => {
@@ -226,12 +235,13 @@ export default function EventsAuditTable({
 
       {/* Filter and Search Bar */}
       <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-4 space-y-3 shadow-glass">
-        <div className="flex flex-col md:flex-row gap-3">
+        <div className="flex flex-col lg:flex-row gap-3">
           {/* Search Box */}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
+              aria-label="Search audit events"
               placeholder="Search by Event ID, command, incident ID, project, or file..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -239,12 +249,13 @@ export default function EventsAuditTable({
             />
           </div>
 
-          {/* Type Filter */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Type Filter */}
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none shadow-xs"
+              aria-label="Filter events by type"
+              className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none shadow-xs"
             >
               {EVENT_TYPE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -252,14 +263,13 @@ export default function EventsAuditTable({
                 </option>
               ))}
             </select>
-          </div>
 
-          {/* Status Filter */}
-          <div className="flex items-center gap-2">
+            {/* Status Filter */}
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none shadow-xs"
+              aria-label="Filter events by status"
+              className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none shadow-xs"
             >
               {STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -267,15 +277,14 @@ export default function EventsAuditTable({
                 </option>
               ))}
             </select>
-          </div>
 
-          {/* Project Filter (if not scoped to single project) */}
-          {!scopedProjectId && projects.length > 0 && (
-            <div className="flex items-center gap-2">
+            {/* Project Filter (if not scoped to single project) */}
+            {!scopedProjectId && projects.length > 0 && (
               <select
                 value={selectedProject}
                 onChange={(e) => setSelectedProject(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none shadow-xs"
+                aria-label="Filter events by project"
+                className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none shadow-xs"
               >
                 <option value="ALL">All Projects ({projects.length})</option>
                 {projects.map((p) => (
@@ -284,20 +293,21 @@ export default function EventsAuditTable({
                   </option>
                 ))}
               </select>
-            </div>
-          )}
+            )}
 
-          {/* Sort Order Toggle */}
-          <button
-            onClick={() =>
-              setSortOrder((prev) => (prev === 'NEWEST' ? 'OLDEST' : 'NEWEST'))
-            }
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition-colors cursor-pointer shrink-0 shadow-xs font-medium"
-            title="Toggle Sort Order"
-          >
-            <ArrowUpDown className="h-3.5 w-3.5 text-brand-500" />
-            <span>{sortOrder === 'NEWEST' ? 'Newest First' : 'Oldest First'}</span>
-          </button>
+            {/* Sort Order Toggle */}
+            <button
+              onClick={() =>
+                setSortOrder((prev) => (prev === 'NEWEST' ? 'OLDEST' : 'NEWEST'))
+              }
+              aria-label={`Toggle sort order, current: ${sortOrder === 'NEWEST' ? 'Newest First' : 'Oldest First'}`}
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition-colors cursor-pointer shrink-0 shadow-xs font-medium"
+              title="Toggle Sort Order"
+            >
+              <ArrowUpDown className="h-3.5 w-3.5 text-brand-500" />
+              <span>{sortOrder === 'NEWEST' ? 'Newest First' : 'Oldest First'}</span>
+            </button>
+          </div>
         </div>
 
         {/* Filter Summary & Result Count */}
@@ -457,17 +467,28 @@ export default function EventsAuditTable({
 
       {/* Event Details Modal */}
       {selectedEventModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-xl rounded-2xl border border-white/90 bg-white/95 backdrop-blur-md p-6 shadow-2xl space-y-4 text-slate-800">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedEventModal(null);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="audit-event-modal-title"
+            className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-white/90 bg-white/95 backdrop-blur-md p-6 shadow-2xl space-y-4 text-slate-800"
+          >
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <History className="h-4 w-4 text-brand-500" />
-                <h3 className="text-sm font-semibold text-slate-900 font-mono">
+                <h3 id="audit-event-modal-title" className="text-sm font-semibold text-slate-900 font-mono">
                   Event Record: {selectedEventModal.eventId}
                 </h3>
               </div>
               <button
                 onClick={() => setSelectedEventModal(null)}
+                aria-label="Close event details modal"
                 className="text-slate-400 hover:text-slate-700 text-xs font-mono cursor-pointer transition-colors"
               >
                 ✕ Close

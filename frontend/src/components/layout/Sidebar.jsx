@@ -16,21 +16,24 @@ export default function Sidebar({ projects = [] }) {
   const { projectId } = useParams();
 
   const navItemClass = ({ isActive }) =>
-    `flex items-center gap-3 px-3 py-2 text-xs font-medium rounded-xl transition-all duration-150 ${
+    `flex items-center gap-3 px-3 py-2 text-xs font-medium rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
       isActive
         ? 'bg-indigo-50/90 text-indigo-600 font-semibold border border-indigo-200/80 shadow-xs'
         : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
     }`;
 
   return (
-    <aside className="w-64 shrink-0 h-full border-r border-slate-200/80 bg-white/60 backdrop-blur-md p-4 flex flex-col justify-between hidden md:flex shadow-xs overflow-y-auto z-20">
+    <aside
+      aria-label="Sidebar Navigation"
+      className="w-64 shrink-0 h-full border-r border-slate-200/80 bg-white/60 backdrop-blur-md p-4 flex flex-col justify-between hidden md:flex shadow-xs overflow-y-auto z-20"
+    >
       <div className="space-y-6">
         {/* Main Navigation */}
         <div>
           <span className="px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
             Platform
           </span>
-          <nav className="mt-2 space-y-1">
+          <nav aria-label="Platform features" className="mt-2 space-y-1">
             <NavLink to="/" end className={navItemClass}>
               <LayoutDashboard className="h-4 w-4 text-indigo-500" />
               <span>Global Dashboard</span>
@@ -65,13 +68,13 @@ export default function Sidebar({ projects = [] }) {
               Workspaces ({projects.length})
             </span>
           </div>
-          <nav className="mt-2 space-y-1">
+          <nav aria-label="Project workspaces" className="mt-2 space-y-1">
             {projects.map((p) => (
               <NavLink
                 key={p.id}
                 to={`/projects/${p.id}`}
                 className={({ isActive }) =>
-                  `flex items-center justify-between px-3 py-1.5 text-xs rounded-xl transition-all duration-150 ${
+                  `flex items-center justify-between px-3 py-1.5 text-xs rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                     isActive
                       ? 'bg-white text-slate-900 font-semibold border border-slate-200/90 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'

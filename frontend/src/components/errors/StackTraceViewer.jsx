@@ -19,6 +19,8 @@ export default function StackTraceViewer({ stackTrace }) {
     <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-glass">
       <button
         onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
+        aria-label={`Full stack trace, ${isOpen ? 'collapse' : 'expand'}`}
         className="w-full flex items-center justify-between px-4 py-3 bg-slate-50/90 hover:bg-slate-100/80 transition-colors text-left cursor-pointer"
       >
         <div className="flex items-center gap-2 font-mono text-xs text-slate-700">
@@ -45,6 +47,7 @@ export default function StackTraceViewer({ stackTrace }) {
         <div className="relative border-t border-slate-200 bg-[#F8FAFC] p-4">
           <button
             onClick={handleCopy}
+            aria-label="Copy stack trace"
             className="absolute top-3 right-3 flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[10px] font-mono text-slate-700 border border-slate-200 hover:text-slate-900 hover:border-slate-300 shadow-xs transition-colors cursor-pointer"
           >
             {copied ? (
