@@ -1,21 +1,50 @@
 import React from 'react';
 import { FileCode2, AlertCircle, Copy, Check } from 'lucide-react';
 
-export default function CodeSnippetViewer({ sourceLocation, errorType }) {
+export default function CodeSnippetViewer({ sourceLocation, errorType, errorMessage, command }) {
   const [copied, setCopied] = React.useState(false);
 
   if (!sourceLocation || !sourceLocation.file) {
+    const isCommandOrExecutableError =
+      errorType === 'CommandError' ||
+      (errorMessage &&
+        (errorMessage.toLowerCase().includes('executable not found') ||
+          errorMessage.toLowerCase().includes('cannot find the file specified') ||
+          errorMessage.toLowerCase().includes('exit code')));
+
     return (
       <div className="rounded-2xl border border-white/80 bg-white/75 dark:border-slate-800/80 dark:bg-slate-900/75 backdrop-blur-md p-5 shadow-glass">
-        <div className="flex items-center gap-2 text-xs font-mono text-slate-500 dark:text-slate-400">
-          <FileCode2 className="h-4 w-4 text-slate-400 dark:text-slate-500" />
-          <span>Source Code Location</span>
+        <div className="flex items-center justify-between text-xs font-mono text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-2">
+            <FileCode2 className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+            <span>Source Code Location</span>
+          </div>
+          {errorType && (
+            <span className="text-[10px] text-slate-500 font-mono">Category: {errorType}</span>
+          )}
         </div>
-        <div className="mt-3 flex items-center gap-2 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/40 p-3 text-xs text-amber-900 dark:text-amber-200 font-mono">
-          <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-          <span>
-            Source location unavailable. The command failed due to an OS-level signal, external environment error, or compiled binary crash without file traces.
-          </span>
+        <div className="mt-3 rounded-xl border border-amber-200/80 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/40 p-3.5 text-xs text-amber-900 dark:text-amber-200 font-mono space-y-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span className="font-semibold">
+              {isCommandOrExecutableError
+                ? 'Executable or environment error — no application source file implicated.'
+                : 'Source location unavailable.'}
+            </span>
+          </div>
+          <p className="text-[11px] text-amber-800 dark:text-amber-300 font-sans leading-relaxed pl-6">
+            {errorMessage
+              ? errorMessage
+              : 'The command failed due to an OS-level signal, external environment error, or binary invocation failure without file traces.'}
+          </p>
+          {command && (
+            <div className="pl-6 pt-1">
+              <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-mono">Executed Command:</span>
+              <code className="text-[11px] text-slate-800 dark:text-slate-200 font-mono bg-white/70 dark:bg-slate-900/70 px-2 py-0.5 rounded border border-amber-200/60 dark:border-amber-900/40 block mt-0.5 break-all">
+                {command}
+              </code>
+            </div>
+          )}
         </div>
       </div>
     );

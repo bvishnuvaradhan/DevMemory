@@ -114,11 +114,52 @@ def create_incident_direct(db: Database, payload: IncidentCreate) -> IncidentRes
     )
 
 
+def _enrich_incidents_with_diagnoses(db: Database, docs: list[dict]) -> list[dict]:
+    """Batch-enrich incident documents with their latest diagnosis records from db.diagnoses."""
+    if not docs:
+        return docs
+    incident_ids = [d["incident_id"] for d in docs if "incident_id" in d]
+    if not incident_ids:
+        return docs
+
+    diag_cursor = db.diagnoses.find(
+        {"incident_id": {"$in": incident_ids}},
+        {"_id": 0},
+    ).sort("created_at", DESCENDING)
+
+    diag_map: dict[str, dict] = {}
+    for diag in diag_cursor:
+        iid = diag.get("incident_id")
+        if iid and iid not in diag_map:  # Keep newest since sorted DESCENDING
+            diag_map[iid] = diag
+
+    for d in docs:
+        iid = d.get("incident_id")
+        if iid and iid in diag_map:
+            d["ai_diagnosis"] = diag_map[iid]
+            if d.get("diagnosis_status") == "pending":
+                d["diagnosis_status"] = "diagnosed"
+
+    return docs
+
+
 def get_incident(db: Database, incident_id: str) -> Optional[IncidentResponse]:
-    """Retrieve an incident by its unique ID."""
+    """Retrieve an incident by its unique ID enriched with its latest diagnosis."""
     doc = db.incidents.find_one({"incident_id": incident_id}, {"_id": 0})
     if not doc:
         return None
+
+    # Attach latest diagnosis if present in db.diagnoses
+    diag = db.diagnoses.find_one(
+        {"incident_id": incident_id},
+        {"_id": 0},
+        sort=[("created_at", DESCENDING)],
+    )
+    if diag:
+        doc["ai_diagnosis"] = diag
+        if doc.get("diagnosis_status") == "pending":
+            doc["diagnosis_status"] = "diagnosed"
+
     return IncidentResponse(**doc)
 
 
@@ -142,7 +183,9 @@ def list_project_incidents(
     filter_query = {"project_id": project_id}
     total = db.incidents.count_documents(filter_query)
     cursor = db.incidents.find(filter_query, {"_id": 0}).sort("created_at", DESCENDING).skip(skip).limit(limit)
-    items = [IncidentResponse(**d) for d in cursor]
+    docs = list(cursor)
+    _enrich_incidents_with_diagnoses(db, docs)
+    items = [IncidentResponse(**d) for d in docs]
 
     return PaginatedResponse[IncidentResponse](
         items=items,
@@ -168,7 +211,9 @@ def list_incidents(
 
     total = db.incidents.count_documents(filter_query)
     cursor = db.incidents.find(filter_query, {"_id": 0}).sort("created_at", DESCENDING).skip(skip).limit(limit)
-    items = [IncidentResponse(**d) for d in cursor]
+    docs = list(cursor)
+    _enrich_incidents_with_diagnoses(db, docs)
+    items = [IncidentResponse(**d) for d in docs]
 
     return PaginatedResponse[IncidentResponse](
         items=items,

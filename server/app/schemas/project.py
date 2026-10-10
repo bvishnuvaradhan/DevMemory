@@ -48,7 +48,16 @@ class ProjectResponse(BaseModel):
 
     project_id: str
     name: str
+    description: Optional[str] = None
     language: Optional[str] = None
+    framework: Optional[str] = None
+    repository: Optional[str] = None
     settings: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
+    total_runs: Optional[int] = Field(default=None, ge=0)
+    failure_count: Optional[int] = Field(default=None, ge=0)
+    verified_fix_count: Optional[int] = Field(default=None, ge=0)
+    median_duration_ms: Optional[int] = Field(default=None, ge=0)
+    last_run_at: Optional[datetime] = None
+    last_run_status: Optional[str] = None

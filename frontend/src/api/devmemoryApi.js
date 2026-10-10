@@ -154,6 +154,74 @@ export function normalizeRun(r) {
   };
 }
 
+export function normalizeDiagnosis(diag) {
+  if (!diag) return null;
+  if (typeof diag === 'string') {
+    return {
+      summary: diag,
+      likelyCause: diag,
+      observedEvidence: [diag],
+      hypotheses: [diag],
+      recommendations: [],
+      confidence: 0.85,
+      source: 'heuristics',
+    };
+  }
+
+  // Evidence
+  const rawEvidence = diag.observedEvidence ?? diag.evidence ?? diag.observed_evidence ?? [];
+  const observedEvidence = Array.isArray(rawEvidence)
+    ? rawEvidence
+    : typeof rawEvidence === 'string'
+    ? [rawEvidence]
+    : [];
+
+  // Hypotheses (extract string cause if item is an object)
+  const rawHypotheses = diag.hypotheses ?? [];
+  const hypotheses = Array.isArray(rawHypotheses)
+    ? rawHypotheses.map((h) =>
+        typeof h === 'object' && h !== null ? h.cause || h.details || JSON.stringify(h) : String(h)
+      )
+    : typeof rawHypotheses === 'string'
+    ? [rawHypotheses]
+    : [];
+
+  // Recommendations / suggested fix
+  let recommendations = [];
+  if (diag.recommendations) {
+    recommendations = Array.isArray(diag.recommendations) ? diag.recommendations : [diag.recommendations];
+  } else if (diag.suggested_fix || diag.suggestedFix) {
+    const rawFix = diag.suggested_fix || diag.suggestedFix;
+    recommendations = Array.isArray(rawFix)
+      ? rawFix
+      : typeof rawFix === 'string'
+      ? rawFix.split(';').map((s) => s.trim()).filter(Boolean)
+      : [];
+  }
+
+  // Decision Gate & Verification metadata
+  const llmSkipped = diag.llm_skipped !== undefined ? Boolean(diag.llm_skipped) : Boolean(diag.llmSkipped);
+  const decisionReason = diag.decision_reason || diag.decisionReason || null;
+  const isVerifiedFix = diag.is_verified_fix !== undefined ? Boolean(diag.is_verified_fix) : Boolean(diag.isVerifiedFix);
+
+  return {
+    ...diag,
+    diagnosisId: diag.diagnosisId || diag.diagnosis_id,
+    incidentId: diag.incidentId || diag.incident_id,
+    summary: diag.summary || diag.likely_cause || diag.likelyCause || '',
+    likelyCause: diag.likely_cause || diag.likelyCause || diag.summary || '',
+    observedEvidence,
+    hypotheses,
+    recommendations,
+    confidence: diag.confidence !== undefined ? diag.confidence : 0.85,
+    source: diag.source || (llmSkipped ? 'DevMemory Memory Bank (Decision Gate Reused)' : 'AI Diagnosis Engine'),
+    llmSkipped,
+    decisionReason,
+    isVerifiedFix,
+    matchedMemory: diag.matched_memory || diag.matchedMemory || [],
+  };
+}
+
 export function normalizeIncident(inc) {
   if (!inc) return inc;
   return {
@@ -171,7 +239,8 @@ export function normalizeIncident(inc) {
       column: inc.column,
       snippet: inc.source_snippet,
     } : null),
-    aiDiagnosis: inc.aiDiagnosis || inc.ai_diagnosis,
+    diagnosisStatus: inc.diagnosisStatus || inc.diagnosis_status || (inc.ai_diagnosis || inc.aiDiagnosis ? 'diagnosed' : 'pending'),
+    aiDiagnosis: normalizeDiagnosis(inc.aiDiagnosis || inc.ai_diagnosis),
     historicalMatches: inc.historicalMatches || inc.historical_matches || [],
     fixOutcome: inc.fixOutcome || inc.fix_outcome,
     createdAt: inc.createdAt || inc.created_at,
@@ -388,6 +457,14 @@ export async function fetchIncident(incidentId) {
   const result = await safeApiFetch(`/incidents/${incidentId}`);
   const data = unwrapData(result);
   if (result.ok && data) {
+    // If diagnosis is missing on incident doc, attempt progressive fetch from diagnosis endpoint
+    if (!data.ai_diagnosis && !data.aiDiagnosis) {
+      const diagRes = await safeApiFetch(`/incidents/${incidentId}/diagnosis`);
+      const diagData = unwrapData(diagRes);
+      if (diagRes.ok && diagData) {
+        data.ai_diagnosis = diagData;
+      }
+    }
     return { data: normalizeIncident(data), isMock: false };
   }
 
@@ -397,6 +474,15 @@ export async function fetchIncident(incidentId) {
   }
 
   return { data: null, isMock: false, error: result.error || 'Incident not found' };
+}
+
+export async function fetchIncidentDiagnosis(incidentId) {
+  const result = await safeApiFetch(`/incidents/${incidentId}/diagnosis`);
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    return { data: normalizeDiagnosis(data), isMock: false };
+  }
+  return { data: null, isMock: false, error: result.error || 'Diagnosis not found' };
 }
 
 export async function fetchProjectPerformance(projectId) {

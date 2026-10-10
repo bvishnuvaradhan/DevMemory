@@ -119,6 +119,8 @@ export default function ErrorInspector({ incidents = [], currentProjectName }) {
         <CodeSnippetViewer
           sourceLocation={activeIncident.sourceLocation}
           errorType={activeIncident.errorType}
+          errorMessage={activeIncident.errorMessage}
+          command={activeIncident.command || activeIncident.relatedCommand}
         />
 
         {/* 2. Full Stack Trace Viewer */}
@@ -128,6 +130,8 @@ export default function ErrorInspector({ incidents = [], currentProjectName }) {
         <AIDiagnosisCard
           aiDiagnosis={activeIncident.aiDiagnosis}
           errorType={activeIncident.errorType}
+          diagnosisStatus={activeIncident.diagnosisStatus}
+          incident={activeIncident}
         />
 
         {/* 4. Fix Outcome & Verification Section */}

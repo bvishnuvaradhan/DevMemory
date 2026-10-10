@@ -154,7 +154,9 @@ export default function ProjectWorkspace() {
           <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100 dark:border-slate-800 text-xs font-mono">
             <span className="text-slate-500 dark:text-slate-400">Median Benchmark:</span>
             <span className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
-              {project?.medianDurationMs ?? 0}ms
+              {project?.medianDurationMs !== null && project?.medianDurationMs !== undefined && project.medianDurationMs > 0
+                ? `${project.medianDurationMs}ms`
+                : (runs && runs.length > 0 && runs[0]?.durationMs ? `${runs[0].durationMs}ms` : 'No data')}
             </span>
           </div>
         </div>
@@ -211,15 +213,21 @@ export default function ProjectWorkspace() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="rounded-2xl border border-white/80 dark:border-slate-800 bg-white/75 dark:bg-slate-900/75 backdrop-blur-md p-5 shadow-glass">
               <span className="text-[10px] uppercase font-mono text-slate-400 dark:text-slate-500 font-semibold">Total Runs</span>
-              <p className="mt-1 text-2xl font-bold font-mono text-slate-900 dark:text-white">{project?.totalRuns}</p>
+              <p className="mt-1 text-2xl font-bold font-mono text-slate-900 dark:text-white">
+                {project?.totalRuns ?? runs.length}
+              </p>
             </div>
             <div className="rounded-2xl border border-white/80 dark:border-slate-800 bg-white/75 dark:bg-slate-900/75 backdrop-blur-md p-5 shadow-glass">
               <span className="text-[10px] uppercase font-mono text-slate-400 dark:text-slate-500 font-semibold">Failures</span>
-              <p className="mt-1 text-2xl font-bold font-mono text-rose-600 dark:text-rose-400">{project?.failureCount}</p>
+              <p className="mt-1 text-2xl font-bold font-mono text-rose-600 dark:text-rose-400">
+                {project?.failureCount ?? incidents.length}
+              </p>
             </div>
             <div className="rounded-2xl border border-white/80 dark:border-slate-800 bg-white/75 dark:bg-slate-900/75 backdrop-blur-md p-5 shadow-glass">
               <span className="text-[10px] uppercase font-mono text-slate-400 dark:text-slate-500 font-semibold">Verified Fixes</span>
-              <p className="mt-1 text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">{project?.verifiedFixCount}</p>
+              <p className="mt-1 text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                {project?.verifiedFixCount ?? 0}
+              </p>
             </div>
           </div>
 

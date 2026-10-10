@@ -1,7 +1,7 @@
 """Incident schemas and models."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 
 
@@ -40,6 +40,8 @@ class IncidentResponse(BaseModel):
     embedding_status: Optional[str] = None
     embedding_is_fallback: Optional[bool] = None
     embedded_at: Optional[datetime] = None
+    # AI Diagnosis payload
+    ai_diagnosis: Optional[Dict[str, Any]] = None
 
 
 class IncidentEmbeddingResponse(BaseModel):

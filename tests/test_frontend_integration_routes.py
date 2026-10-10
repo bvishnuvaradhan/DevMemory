@@ -124,6 +124,25 @@ def test_db(mongo_client):
         "updated_at": now,
     })
 
+    # Seed diagnoses
+    db.diagnoses.delete_many({})
+    db.diagnoses.insert_one({
+        "diagnosis_id": "diag_beta_01",
+        "incident_id": "inc_beta_01",
+        "project_id": "proj_frontend_beta",
+        "summary": "Assertion failure due to mismatched status code",
+        "likely_cause": "Expected 200 but got 500",
+        "hypotheses": [{"cause": "Internal server error in test endpoint"}],
+        "suggested_fix": "Fix error handling in mock endpoint",
+        "evidence": ["AssertionError: Expected 200 got 500"],
+        "confidence": 0.95,
+        "source": "groq-llama-3.3-70b",
+        "is_verified_fix": False,
+        "llm_skipped": False,
+        "decision_reason": None,
+        "created_at": now,
+    })
+
     return db
 
 
@@ -152,6 +171,28 @@ def test_get_runs_endpoint_global_and_filtered(client):
     assert filtered_data["data"]["items"][0]["event_id"] == "evt_run_01"
 
 
+def test_get_project_enriched_metrics(client):
+    # Verify alpha metrics
+    res_alpha = client.get("/api/v1/projects/proj_frontend_alpha")
+    assert res_alpha.status_code == 200
+    p_alpha = res_alpha.json()["data"]
+    assert p_alpha["total_runs"] == 1
+    assert p_alpha["failure_count"] == 0
+    assert p_alpha["verified_fix_count"] == 0
+    assert p_alpha["median_duration_ms"] == 150
+    assert p_alpha["last_run_status"] == "success"
+
+    # Verify beta metrics
+    res_beta = client.get("/api/v1/projects/proj_frontend_beta")
+    assert res_beta.status_code == 200
+    p_beta = res_beta.json()["data"]
+    assert p_beta["total_runs"] == 1
+    assert p_beta["failure_count"] == 1
+    assert p_beta["verified_fix_count"] == 1
+    assert p_beta["median_duration_ms"] == 320
+    assert p_beta["last_run_status"] == "failure"
+
+
 def test_get_incidents_endpoint_global_and_filtered(client):
     # Global incidents list
     res = client.get("/api/v1/incidents")
@@ -160,6 +201,9 @@ def test_get_incidents_endpoint_global_and_filtered(client):
     assert data["success"] is True
     assert data["data"]["total"] == 1
     assert data["data"]["items"][0]["incident_id"] == "inc_beta_01"
+    # Verify ai_diagnosis enrichment from db.diagnoses
+    assert data["data"]["items"][0]["ai_diagnosis"] is not None
+    assert data["data"]["items"][0]["ai_diagnosis"]["summary"] == "Assertion failure due to mismatched status code"
 
     # Filtered by nonexistent project
     res_empty = client.get("/api/v1/incidents?project_id=proj_nonexistent")
