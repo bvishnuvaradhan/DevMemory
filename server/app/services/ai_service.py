@@ -11,6 +11,7 @@ Implements:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, List, Optional, Tuple
 from fastapi import HTTPException, status
 from pymongo.database import Database
@@ -18,6 +19,7 @@ from pymongo.database import Database
 import ai_engine.schemas as ai_schemas
 from ai_engine.diagnosis import diagnose_error
 from ai_engine.retrieval import AuthorizationContext, IncidentRepository
+from app.config import get_settings
 from app.schemas.diagnosis import (
     DiagnosisCreate,
     DiagnosisResponse as BackendDiagnosisResponseModel,
@@ -296,3 +298,88 @@ def generate_and_store_incident_diagnosis(
     )
 
     return diagnosis_resp, is_new
+
+
+def check_groq_provider_readiness() -> Dict[str, Any]:
+    """Check Groq provider readiness and configuration status safely without leaking secrets.
+
+    Returns:
+        Dict containing status, is_configured, model, timeout_seconds, and masked_key.
+    """
+    settings = get_settings()
+    api_key = os.getenv("GROQ_API_KEY") or settings.GROQ_API_KEY
+    is_offline = (
+        os.getenv("DEV_MEMORY_DISABLE_EXTERNAL_AI", "").lower() in ("1", "true", "yes")
+        or os.getenv("DEVMEMORY_OFFLINE_MODE", "").lower() in ("1", "true", "yes")
+        or os.getenv("AI_PRIVACY_OFFLINE_ONLY", "").lower() in ("1", "true", "yes")
+        or (settings.DEV_MEMORY_DISABLE_EXTERNAL_AI or "").lower() in ("1", "true", "yes")
+    )
+
+    if is_offline:
+        return {
+            "status": "offline_mode_enforced",
+            "is_configured": bool(api_key),
+            "model": os.getenv("GROQ_MODEL", settings.GROQ_MODEL),
+            "message": "External AI inference is disabled by privacy configuration (offline mode).",
+        }
+
+    if not api_key:
+        return {
+            "status": "unconfigured",
+            "is_configured": False,
+            "model": os.getenv("GROQ_MODEL", settings.GROQ_MODEL),
+            "message": "GROQ_API_KEY is not configured. Safe deterministic fallback will be used.",
+        }
+
+    # Mask key safely: display prefix and length bounds only, never full secret
+    masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "***"
+    return {
+        "status": "configured",
+        "is_configured": True,
+        "model": os.getenv("GROQ_MODEL", settings.GROQ_MODEL),
+        "timeout_seconds": float(os.getenv("GROQ_TIMEOUT_SECONDS", str(settings.GROQ_TIMEOUT_SECONDS))),
+        "masked_key": masked_key,
+        "message": "Groq API credentials are configured and ready for live requests.",
+    }
+
+
+def validate_live_groq_connection() -> Dict[str, Any]:
+    """Perform a minimal live Groq connectivity check if configured, without leaking secrets."""
+    status_info = check_groq_provider_readiness()
+    if not status_info["is_configured"]:
+        return {
+            "success": False,
+            "status": "unconfigured",
+            "message": "GROQ_API_KEY is not configured; live validation was not performed.",
+        }
+
+    if status_info["status"] == "offline_mode_enforced":
+        return {
+            "success": False,
+            "status": "offline_mode_enforced",
+            "message": "Offline mode is enforced; live validation was skipped.",
+        }
+
+    try:
+        from ai_engine.llm_client import GroqLLMClient
+
+        client = GroqLLMClient()
+        response = client.generate_diagnosis(
+            system_prompt="You are a diagnostic assistant. Respond in valid JSON with key 'status'.",
+            user_prompt="ping",
+        )
+        return {
+            "success": True,
+            "status": "connected",
+            "model": client.model,
+            "message": "Live Groq connectivity validated successfully.",
+        }
+    except Exception as exc:
+        from ai_engine.privacy import redact_secrets
+
+        sanitized_err = redact_secrets(str(exc))
+        return {
+            "success": False,
+            "status": "error",
+            "message": f"Live Groq request failed: {sanitized_err}",
+        }
