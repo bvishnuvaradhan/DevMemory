@@ -1,0 +1,41 @@
+"""Pydantic schemas and response envelope models."""
+
+from typing import Generic, Optional, TypeVar
+from pydantic import BaseModel
+
+from app.schemas.incident import IncidentCreate, IncidentResponse
+from app.schemas.pagination import PaginatedResponse
+from app.schemas.project import ProjectCreate, ProjectResponse
+from app.schemas.run import EnvironmentInfo, ErrorContext, RunCreate, RunResponse
+
+T = TypeVar("T")
+
+
+class ResponseEnvelope(BaseModel, Generic[T]):
+    """Standardized API response envelope."""
+
+    success: bool
+    data: Optional[T] = None
+    error: Optional[str] = None
+
+
+class HealthData(BaseModel):
+    """Health status details."""
+
+    application: str
+    database: str
+
+
+__all__ = [
+    "ResponseEnvelope",
+    "HealthData",
+    "PaginatedResponse",
+    "ProjectCreate",
+    "ProjectResponse",
+    "RunCreate",
+    "RunResponse",
+    "EnvironmentInfo",
+    "ErrorContext",
+    "IncidentCreate",
+    "IncidentResponse",
+]
