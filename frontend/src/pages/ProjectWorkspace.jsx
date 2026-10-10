@@ -36,7 +36,7 @@ export default function ProjectWorkspace() {
 
   // Detect subpath tab if present (e.g. /projects/proj_auth_service/errors)
   const currentSubTab = location.pathname.split(`/projects/${projectId}/`)[1]?.split('/')[0];
-  const validTabs = ['overview', 'runs', 'errors', 'memory', 'performance', 'events', 'security'];
+  const validTabs = ['overview', 'runs', 'errors', 'security'];
   const initialTab = validTabs.includes(currentSubTab) ? currentSubTab : 'overview';
 
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -52,10 +52,13 @@ export default function ProjectWorkspace() {
   useEffect(() => {
     if (currentSubTab && validTabs.includes(currentSubTab)) {
       setActiveTab(currentSubTab);
-    } else if (!currentSubTab) {
+    } else if (currentSubTab && !validTabs.includes(currentSubTab)) {
+      setActiveTab('overview');
+      navigate(`/projects/${projectId}`, { replace: true });
+    } else {
       setActiveTab('overview');
     }
-  }, [currentSubTab]);
+  }, [currentSubTab, projectId, navigate]);
 
   const handleTabChange = (tabId) => {
     setActiveTab(tabId);
@@ -97,9 +100,6 @@ export default function ProjectWorkspace() {
     { id: 'overview', label: 'Overview', icon: FolderGit2 },
     { id: 'runs', label: 'Command Runs', icon: Terminal, count: runs.length },
     { id: 'errors', label: 'Errors & Diagnoses', icon: AlertTriangle, count: incidents.length || project?.failureCount },
-    { id: 'memory', label: 'Memory Bank', icon: BrainCircuit },
-    { id: 'performance', label: 'Performance Lab', icon: TrendingUp },
-    { id: 'events', label: 'Events & Audit', icon: History, count: events.length },
     { id: 'security', label: 'LLM Security Monitor', icon: ShieldCheck },
   ];
 
@@ -206,7 +206,7 @@ export default function ProjectWorkspace() {
       <div
         role="tabpanel"
         id={`workspace-tabpanel-${activeTab}`}
-        aria-label={tabs.find((t) => t.id === activeTab)?.label}
+        aria-label={tabs.find((t) => t.id === activeTab)?.label || 'Overview'}
       >
         {activeTab === 'overview' && (
           <div className="space-y-6">
