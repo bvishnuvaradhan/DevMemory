@@ -16,15 +16,28 @@ from devmemory.integration.models import (
 DEFAULT_TIMEOUT_SECONDS = 2.0
 DEFAULT_MAX_RETRIES = 1
 DEFAULT_BACKOFF_SECONDS = 0.2
-INGEST_ENDPOINT_PATH = "/api/runs/ingest"
+RUNS_ENDPOINT_PATH = "/api/v1/runs"
+PROJECTS_ENDPOINT_PATH = "/api/v1/projects"
+INCIDENTS_ENDPOINT_PATH = "/api/v1/incidents"
+
+
+@dataclass
+class ProjectRegistrationResult:
+    """Result of attempting to register a project on the backend."""
+    success: bool
+    is_offline: bool
+    status_code: Optional[int] = None
+    project_id: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 @dataclass
 class IngestionResult:
-    """Result of attempting to submit an incident payload to the backend."""
+    """Result of attempting to submit a run event to the backend."""
     success: bool
     is_offline: bool
     status_code: Optional[int] = None
+    incident_id: Optional[str] = None
     diagnosis: Optional[BackendDiagnosisResponse] = None
     error_message: Optional[str] = None
     attempts: int = 1
@@ -33,31 +46,93 @@ class IngestionResult:
 class DevMemoryClient:
     """
     Lightweight, dependency-free HTTP integration client with retry policy,
-    bounded timeouts, and graceful offline fallback.
+    bounded timeouts, and graceful offline fallback, communicating with Member 2's FastAPI backend.
     """
 
     def __init__(
         self,
         base_url: str = "http://localhost:8000",
-        endpoint_path: str = INGEST_ENDPOINT_PATH,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         max_retries: int = DEFAULT_MAX_RETRIES,
         backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.endpoint_path = endpoint_path if endpoint_path.startswith("/") else f"/{endpoint_path}"
         self.timeout = timeout
         self.max_retries = max_retries
         self.backoff_seconds = backoff_seconds
 
     @property
-    def ingest_url(self) -> str:
-        return f"{self.base_url}{self.endpoint_path}"
+    def runs_url(self) -> str:
+        return f"{self.base_url}{RUNS_ENDPOINT_PATH}"
+
+    @property
+    def projects_url(self) -> str:
+        return f"{self.base_url}{PROJECTS_ENDPOINT_PATH}"
+
+    def register_project(
+        self,
+        project_id: str,
+        name: str,
+        language: Optional[str] = None,
+    ) -> ProjectRegistrationResult:
+        """
+        Register a project at POST /api/v1/projects.
+        If the project already exists (409 Conflict), treats it as successfully registered.
+        """
+        payload = {
+            "project_id": project_id,
+            "name": name,
+            "language": language or "unknown",
+            "settings": {},
+        }
+        req_body = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "User-Agent": "DevMemory-CLI/1.0.0",
+        }
+
+        req = urllib.request.Request(
+            url=self.projects_url,
+            data=req_body,
+            headers=headers,
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                code = resp.getcode()
+                return ProjectRegistrationResult(
+                    success=True,
+                    is_offline=False,
+                    status_code=code,
+                    project_id=project_id,
+                )
+        except urllib.error.HTTPError as http_err:
+            # 409 Conflict means project is already registered on backend - treat as success
+            if http_err.code == 409:
+                return ProjectRegistrationResult(
+                    success=True,
+                    is_offline=False,
+                    status_code=409,
+                    project_id=project_id,
+                )
+            return ProjectRegistrationResult(
+                success=False,
+                is_offline=False,
+                status_code=http_err.code,
+                error_message=f"HTTP {http_err.code}: {http_err.reason}",
+            )
+        except (urllib.error.URLError, TimeoutError, OSError) as net_err:
+            return ProjectRegistrationResult(
+                success=False,
+                is_offline=True,
+                error_message=f"Connection failed: {net_err}",
+            )
 
     def submit_incident(self, payload: IncidentPayload) -> IngestionResult:
         """
-        Submit incident payload to the backend with bounded retries for transient errors.
-        Never crashes; returns typed IngestionResult.
+        Submit a command execution run to POST /api/v1/runs.
+        Extracts incident_id if created and optionally fetches incident history.
         """
         payload_data = payload.to_dict()
         req_body = json.dumps(payload_data).encode("utf-8")
@@ -75,7 +150,7 @@ class DevMemoryClient:
 
         for attempt in range(1, self.max_retries + 2):
             req = urllib.request.Request(
-                url=self.ingest_url,
+                url=self.runs_url,
                 data=req_body,
                 headers=headers,
                 method="POST",
@@ -97,11 +172,20 @@ class DevMemoryClient:
                             attempts=attempt,
                         )
 
-                    diag = self._parse_diagnosis_response(payload.event_id, resp_json)
+                    # Extract RunResponse from ResponseEnvelope
+                    data_obj = resp_json.get("data") or {}
+                    incident_id = data_obj.get("incident_id")
+
+                    diag = None
+                    if incident_id:
+                        # Attempt to query historical memory for this incident
+                        diag = self._fetch_incident_history(incident_id, payload.event_id)
+
                     return IngestionResult(
                         success=True,
                         is_offline=False,
                         status_code=status_code,
+                        incident_id=incident_id,
                         diagnosis=diag,
                         attempts=attempt,
                     )
@@ -142,41 +226,57 @@ class DevMemoryClient:
             attempts=self.max_retries + 1,
         )
 
-    def _parse_diagnosis_response(
-        self, event_id: str, data: Dict[str, Any]
-    ) -> BackendDiagnosisResponse:
-        """Parse backend JSON response into structured BackendDiagnosisResponse model."""
-        status = data.get("status", "success")
-        probable_cause = data.get("probable_cause") or data.get("cause")
-        hypotheses = data.get("hypotheses", [])
-        suggested_steps = data.get("suggested_steps") or data.get("suggested_actions") or []
-        kb_match = data.get("knowledge_base_match")
-        is_verified = bool(data.get("is_verified_fix", False))
+    def _fetch_incident_history(
+        self, incident_id: str, event_id: str
+    ) -> Optional[BackendDiagnosisResponse]:
+        """Fetch historical incident and cross-project matches from GET /api/v1/incidents/{incident_id}/history."""
+        url = f"{self.base_url}{INCIDENTS_ENDPOINT_PATH}/{incident_id}/history"
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "DevMemory-CLI/1.0.0",
+        }
+        req = urllib.request.Request(url=url, headers=headers, method="GET")
 
-        similar_list: list[SimilarIncidentMatch] = []
-        raw_sim = data.get("similar_incidents") or data.get("historical_matches") or []
-        if isinstance(raw_sim, list):
-            for item in raw_sim:
-                if isinstance(item, dict):
-                    similar_list.append(
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                resp_data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                data = resp_data.get("data") or {}
+
+                similar_matches: list[SimilarIncidentMatch] = []
+                # Same-project matches
+                for item in data.get("same_project_matches") or []:
+                    similar_matches.append(
                         SimilarIncidentMatch(
                             incident_id=str(item.get("incident_id", "unknown")),
-                            project_name=str(item.get("project_name", "cross-project")),
-                            similarity_score=float(item.get("similarity_score", 0.0)),
-                            summary=str(item.get("summary", "")),
-                            verified_fix=item.get("verified_fix"),
-                            is_cross_project=bool(item.get("is_cross_project", False)),
+                            project_name="Current Project",
+                            similarity_score=1.0,
+                            summary=str(item.get("error_message") or item.get("error_type") or ""),
+                            is_cross_project=False,
+                        )
+                    )
+                # Cross-project matches
+                for item in data.get("cross_project_matches") or []:
+                    similar_matches.append(
+                        SimilarIncidentMatch(
+                            incident_id=str(item.get("incident_id", "unknown")),
+                            project_name=str(item.get("project_id", "cross-project")),
+                            similarity_score=0.9,
+                            summary=str(item.get("error_message") or item.get("error_type") or ""),
+                            is_cross_project=True,
                         )
                     )
 
-        return BackendDiagnosisResponse(
-            status=status,
-            event_id=event_id,
-            probable_cause=probable_cause,
-            hypotheses=hypotheses if isinstance(hypotheses, list) else [str(hypotheses)],
-            suggested_steps=suggested_steps if isinstance(suggested_steps, list) else [str(suggested_steps)],
-            similar_incidents=similar_list,
-            knowledge_base_match=kb_match,
-            is_verified_fix=is_verified,
-            raw_response=data,
-        )
+                return BackendDiagnosisResponse(
+                    status="success",
+                    event_id=event_id,
+                    incident_id=incident_id,
+                    similar_incidents=similar_matches,
+                    raw_response=data,
+                )
+        except Exception:
+            # History fetch is optional enhancement; fallback cleanly
+            return BackendDiagnosisResponse(
+                status="success",
+                event_id=event_id,
+                incident_id=incident_id,
+            )

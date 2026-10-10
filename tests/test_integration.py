@@ -6,18 +6,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from devmemory.integration.client import (
-    INGEST_ENDPOINT_PATH,
+    INCIDENTS_ENDPOINT_PATH,
+    PROJECTS_ENDPOINT_PATH,
+    RUNS_ENDPOINT_PATH,
     DevMemoryClient,
     IngestionResult,
+    ProjectRegistrationResult,
 )
 from devmemory.integration.models import (
     CLIENT_SCHEMA_VERSION,
-    BackendDiagnosisResponse,
-    IncidentErrorInfo,
+    BackendEnvironmentInfo,
+    BackendErrorContext,
     IncidentPayload,
-    IncidentSourceSnippet,
-    IncidentStackFrame,
-    SimilarIncidentMatch,
     redact_secrets,
 )
 
@@ -58,55 +58,46 @@ def test_redact_secrets_clean_text():
 
 
 # ---------------------------------------------------------------------------
-# Incident Payload Model Tests
+# Incident Payload Model Tests (RunCreate alignment)
 # ---------------------------------------------------------------------------
 
-def test_incident_payload_serialization():
-    """Verify IncidentPayload serializes cleanly to JSON dictionary."""
-    snip = IncidentSourceSnippet(
-        file_path="src/calc.py",
-        target_line=5,
-        target_col=2,
-        start_line=1,
-        end_line=10,
-        lines=["def add(a, b):", "  return a + b"],
-    )
-    frame = IncidentStackFrame(
-        raw_frame="File 'src/calc.py', line 5, in add",
-        file_path="src/calc.py",
-        line_number=5,
-        snippet=snip,
-    )
-    err = IncidentErrorInfo(
-        language="python",
+def test_incident_payload_serialization_matches_backend_schema():
+    """Verify IncidentPayload strictly serializes to backend RunCreate schema."""
+    err_ctx = BackendErrorContext(
         error_type="ZeroDivisionError",
         message="division by zero",
-        frames=[frame],
-        primary_frame=frame,
-        has_diagnostic=True,
+        file_path="src/calc.py",
+        line=5,
+        column=1,
+        snippet="return a / b",
     )
+    env_info = BackendEnvironmentInfo(os="Windows", runtime_version="3.13.5")
     payload = IncidentPayload(
         event_id="evt-123",
         project_id="proj-456",
         project_name="test-project",
-        command=["python", "calc.py"],
+        command="python calc.py",
         cwd="/workspace",
         started_at="2026-10-10T12:00:00Z",
         ended_at="2026-10-10T12:00:01Z",
-        duration_ms=105.5,
+        duration_ms=105,
         exit_code=1,
         interrupted=False,
         stdout="",
         stderr="ZeroDivisionError: division by zero",
-        error_info=err,
+        environment=env_info,
+        error_context=err_ctx,
     )
 
     data = payload.to_dict()
     assert data["event_id"] == "evt-123"
     assert data["project_id"] == "proj-456"
-    assert data["client_version"] == CLIENT_SCHEMA_VERSION
-    assert data["error_info"]["error_type"] == "ZeroDivisionError"
-    assert data["error_info"]["frames"][0]["snippet"]["file_path"] == "src/calc.py"
+    assert isinstance(data["command"], str)
+    assert data["command"] == "python calc.py"
+    assert isinstance(data["duration_ms"], int)
+    assert data["error_context"]["error_type"] == "ZeroDivisionError"
+    assert data["error_context"]["file_path"] == "src/calc.py"
+    assert data["error_context"]["line"] == 5
 
     # Must be 100% JSON dumpable
     json_str = json.dumps(data)
@@ -114,21 +105,58 @@ def test_incident_payload_serialization():
 
 
 # ---------------------------------------------------------------------------
-# HTTP Client & Ingestion Tests
+# Project Registration Tests
 # ---------------------------------------------------------------------------
 
-def test_client_submit_success():
-    """Verify client handles a 200 OK response from backend with diagnosis."""
+def test_client_project_registration_success():
+    """Verify registering a new project succeeds."""
+    client = DevMemoryClient(base_url="http://localhost:8000")
+    mock_resp = MagicMock()
+    mock_resp.getcode.return_value = 201
+    mock_resp.read.return_value = json.dumps({"success": True, "data": {"project_id": "proj-1"}}).encode("utf-8")
+    mock_resp.__enter__.return_value = mock_resp
+
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        res = client.register_project(project_id="proj-1", name="Test Service")
+        assert res.success is True
+        assert res.is_offline is False
+        assert res.project_id == "proj-1"
+
+
+def test_client_project_registration_conflict_treated_as_existing():
+    """Verify HTTP 409 Conflict treats existing project as already registered."""
+    client = DevMemoryClient(base_url="http://localhost:8000")
+    http_error = urllib.error.HTTPError(
+        url="http://localhost:8000/api/v1/projects",
+        code=409,
+        msg="Conflict",
+        hdrs={},
+        fp=None,
+    )
+
+    with patch("urllib.request.urlopen", side_effect=http_error):
+        res = client.register_project(project_id="proj-existing", name="Existing Service")
+        assert res.success is True
+        assert res.status_code == 409
+        assert res.project_id == "proj-existing"
+
+
+# ---------------------------------------------------------------------------
+# HTTP Client Ingestion Tests
+# ---------------------------------------------------------------------------
+
+def test_client_submit_success_extracts_incident_id():
+    """Verify client handles a 201 Created ResponseEnvelope from backend."""
     client = DevMemoryClient(base_url="http://localhost:8000")
     payload = IncidentPayload(
         event_id="evt-abc",
         project_id="proj-xyz",
         project_name="demo-app",
-        command=["python", "main.py"],
+        command="python main.py",
         cwd="/app",
         started_at="2026-10-10T12:00:00Z",
         ended_at="2026-10-10T12:00:01Z",
-        duration_ms=50.0,
+        duration_ms=50,
         exit_code=1,
         interrupted=False,
         stdout="",
@@ -136,23 +164,19 @@ def test_client_submit_success():
     )
 
     mock_resp = MagicMock()
-    mock_resp.getcode.return_value = 200
+    mock_resp.getcode.return_value = 201
     mock_resp_data = {
-        "status": "success",
-        "probable_cause": "Null pointer passed to compute()",
-        "hypotheses": ["Argument 'user' was None"],
-        "suggested_steps": ["Add validation check: if not user: return"],
-        "knowledge_base_match": "Python TypeError on NoneType attributes",
-        "similar_incidents": [
-            {
-                "incident_id": "inc-999",
-                "project_name": "auth-service",
-                "similarity_score": 0.88,
-                "summary": "NoneType user passed in auth handler",
-                "verified_fix": "Added null check in middleware",
-                "is_cross_project": True,
-            }
-        ],
+        "success": True,
+        "data": {
+            "event_id": "evt-abc",
+            "project_id": "proj-xyz",
+            "command": "python main.py",
+            "exit_code": 1,
+            "status": "failure",
+            "duration_ms": 50,
+            "incident_id": "inc_evt-abc",
+        },
+        "error": None,
     }
     mock_resp.read.return_value = json.dumps(mock_resp_data).encode("utf-8")
     mock_resp.__enter__.return_value = mock_resp
@@ -161,12 +185,8 @@ def test_client_submit_success():
         res = client.submit_incident(payload)
         assert res.success is True
         assert res.is_offline is False
-        assert res.status_code == 200
-        assert res.diagnosis is not None
-        assert res.diagnosis.probable_cause == "Null pointer passed to compute()"
-        assert len(res.diagnosis.similar_incidents) == 1
-        assert res.diagnosis.similar_incidents[0].is_cross_project is True
-        assert res.diagnosis.similar_incidents[0].verified_fix == "Added null check in middleware"
+        assert res.status_code == 201
+        assert res.incident_id == "inc_evt-abc"
 
 
 def test_client_offline_fallback():
@@ -175,16 +195,9 @@ def test_client_offline_fallback():
     payload = IncidentPayload(
         event_id="evt-offline",
         project_id="proj-offline",
-        project_name="offline-app",
-        command=["python", "test.py"],
-        cwd="/app",
-        started_at="2026-10-10T12:00:00Z",
-        ended_at="2026-10-10T12:00:01Z",
-        duration_ms=10.0,
+        command="python test.py",
+        duration_ms=10,
         exit_code=1,
-        interrupted=False,
-        stdout="",
-        stderr="",
     )
 
     with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("Connection refused")):
@@ -200,20 +213,13 @@ def test_client_no_retry_on_client_4xx_error():
     payload = IncidentPayload(
         event_id="evt-400",
         project_id="proj-400",
-        project_name="bad-payload",
-        command=["python"],
-        cwd="/app",
-        started_at="2026-10-10T12:00:00Z",
-        ended_at="2026-10-10T12:00:01Z",
-        duration_ms=10.0,
+        command="python",
+        duration_ms=10,
         exit_code=1,
-        interrupted=False,
-        stdout="",
-        stderr="",
     )
 
     http_error = urllib.error.HTTPError(
-        url="http://localhost:8000/api/runs/ingest",
+        url="http://localhost:8000/api/v1/runs",
         code=422,
         msg="Unprocessable Entity",
         hdrs={},
@@ -224,7 +230,7 @@ def test_client_no_retry_on_client_4xx_error():
         res = client.submit_incident(payload)
         assert res.success is False
         assert res.status_code == 422
-        assert mock_call.call_count == 1  # Exactly 1 call, no retries on 4xx
+        assert mock_call.call_count == 1
         assert "Client request error" in res.error_message
 
 
@@ -234,20 +240,13 @@ def test_client_retries_on_500_server_error():
     payload = IncidentPayload(
         event_id="evt-500",
         project_id="proj-500",
-        project_name="retry-app",
-        command=["python"],
-        cwd="/app",
-        started_at="2026-10-10T12:00:00Z",
-        ended_at="2026-10-10T12:00:01Z",
-        duration_ms=10.0,
+        command="python",
+        duration_ms=10,
         exit_code=1,
-        interrupted=False,
-        stdout="",
-        stderr="",
     )
 
     http_error = urllib.error.HTTPError(
-        url="http://localhost:8000/api/runs/ingest",
+        url="http://localhost:8000/api/v1/runs",
         code=500,
         msg="Internal Server Error",
         hdrs={},
@@ -258,4 +257,4 @@ def test_client_retries_on_500_server_error():
         res = client.submit_incident(payload)
         assert res.success is False
         assert res.status_code == 500
-        assert mock_call.call_count == 3  # 1 initial + 2 retries
+        assert mock_call.call_count == 3

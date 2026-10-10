@@ -16,6 +16,8 @@ from devmemory import __version__
 from devmemory.diagnostics import DiagnosticResult, analyze_error_output
 from devmemory.integration import (
     BackendDiagnosisResponse,
+    BackendEnvironmentInfo,
+    BackendErrorContext,
     DevMemoryClient,
     IncidentErrorInfo,
     IncidentPayload,
@@ -135,7 +137,7 @@ def init(
         help="DevMemory backend API URL.",
     ),
 ) -> None:
-    """Initialize DevMemory in the current working directory."""
+    """Initialize DevMemory in the current working directory and register project on backend."""
     cwd = Path.cwd().resolve()
     config_dir = cwd / CONFIG_DIR_NAME
     config_path = config_dir / CONFIG_FILE_NAME
@@ -152,10 +154,17 @@ def init(
         # Existing valid config found
         proj_id = existing_data.get("project_id", "unknown")
         proj_name = existing_data.get("project_name", cwd.name)
+        target_backend = existing_data.get("backend_url", backend_url)
+
+        # Attempt to ensure project is registered on the backend
+        client = DevMemoryClient(base_url=target_backend)
+        reg_result = client.register_project(project_id=proj_id, name=proj_name)
+        backend_note = " (verified on backend)" if reg_result.success else " (backend offline / unverified)"
+
         console.print(
             f"[bold yellow]Project already initialized![/]\n"
             f"  [cyan]Project Name:[/] {proj_name}\n"
-            f"  [cyan]Project ID:[/]   {proj_id}\n"
+            f"  [cyan]Project ID:[/]   {proj_id}{backend_note}\n"
             f"  [cyan]Root:[/]         {cwd}\n"
             f"  [cyan]Config:[/]       {config_path}"
         )
@@ -187,59 +196,51 @@ def init(
         err_console.print(f"[bold red]Error:[/] Failed to write configuration at {config_path}: {exc}")
         raise typer.Exit(code=1)
 
+    # Register project on backend
+    client = DevMemoryClient(base_url=backend_url)
+    reg_result = client.register_project(project_id=new_project_id, name=resolved_name)
+    reg_status_str = (
+        "[green]Registered on backend[/]"
+        if reg_result.success
+        else f"[yellow]Local config created (backend offline - {reg_result.error_message})[/]"
+    )
+
     console.print(
         f"[bold green]Initialized DevMemory project successfully![/]\n"
         f"  [cyan]Project Name:[/] {resolved_name}\n"
         f"  [cyan]Project ID:[/]   {new_project_id}\n"
         f"  [cyan]Project Root:[/] {cwd}\n"
         f"  [cyan]Backend URL:[/]  {backend_url}\n"
+        f"  [cyan]Status:[/]       {reg_status_str}\n"
         f"  [cyan]Config File:[/]  {config_path}"
     )
 
 
-def _convert_diagnostic_to_payload(diag: Optional[DiagnosticResult]) -> Optional[IncidentErrorInfo]:
-    """Convert local diagnostic dataclass to serializable IncidentErrorInfo."""
-    if not diag:
+def _convert_diagnostic_to_backend_context(diag: Optional[DiagnosticResult]) -> Optional[BackendErrorContext]:
+    """Map local DiagnosticResult to backend's ErrorContext schema."""
+    if not diag or not diag.has_diagnostic:
         return None
 
-    def _convert_frame(f: Any) -> Optional[IncidentStackFrame]:
-        if not f:
-            return None
-        snip = None
-        if f.snippet:
-            snip = IncidentSourceSnippet(
-                file_path=f.snippet.file_path,
-                target_line=f.snippet.target_line,
-                target_col=f.snippet.target_col,
-                start_line=f.snippet.start_line,
-                end_line=f.snippet.end_line,
-                lines=f.snippet.lines,
-                is_safe=f.snippet.is_safe,
-                error=f.snippet.error,
-            )
-        return IncidentStackFrame(
-            raw_frame=f.raw_frame,
-            file_path=f.file_path,
-            line_number=f.line_number,
-            column_number=f.column_number,
-            function_name=f.function_name,
-            code_line=f.code_line,
-            is_project_file=f.is_project_file,
-            snippet=snip,
-        )
+    file_path = None
+    line = None
+    col = None
+    snippet_str = None
 
-    frames = [_convert_frame(f) for f in diag.frames if f]
-    primary = _convert_frame(diag.primary_frame)
+    if diag.primary_frame:
+        pf = diag.primary_frame
+        file_path = pf.file_path
+        line = pf.line_number
+        col = pf.column_number
+        if pf.snippet and pf.snippet.lines:
+            snippet_str = "\n".join(pf.snippet.lines)
 
-    return IncidentErrorInfo(
-        language=diag.language,
+    return BackendErrorContext(
         error_type=diag.error_type,
         message=diag.message,
-        frames=[f for f in frames if f is not None],
-        primary_frame=primary,
-        raw_traceback=diag.raw_traceback,
-        confidence=diag.confidence,
-        has_diagnostic=diag.has_diagnostic,
+        file_path=file_path,
+        line=line,
+        column=col,
+        snippet=snippet_str,
     )
 
 
@@ -289,7 +290,7 @@ def _render_diagnostic_report(diag: DiagnosticResult, cwd: Path) -> None:
 
 
 def _render_backend_report(ingestion: IngestionResult) -> None:
-    """Render backend ingestion status, AI hypotheses, and cross-project memory matches."""
+    """Render backend ingestion status, incident identifier, and memory matches."""
     if ingestion.is_offline:
         console.print(f"\n[dim yellow]Backend Status:[/] Offline (Local mode - {ingestion.error_message})")
         return
@@ -299,33 +300,19 @@ def _render_backend_report(ingestion: IngestionResult) -> None:
         return
 
     console.print("\n[bold green]--- DevMemory Platform Diagnosis ---[/]")
+    if ingestion.incident_id:
+        console.print(f"  [bold cyan]Incident ID:[/] [magenta]{ingestion.incident_id}[/]")
+
     diag = ingestion.diagnosis
     if not diag:
-        console.print("  [dim]Run ingested successfully.[/]")
+        console.print("  [dim]Run recorded successfully in DevMemory backend.[/]")
         return
-
-    if diag.probable_cause:
-        console.print(f"  [bold cyan]Probable Cause:[/] {diag.probable_cause}")
-
-    if diag.hypotheses:
-        console.print("  [bold cyan]Hypotheses:[/] (AI-generated)")
-        for h in diag.hypotheses:
-            console.print(f"    - {h}")
-
-    if diag.suggested_steps:
-        console.print("  [bold cyan]Suggested Troubleshooting Steps:[/] (Hypothesis)")
-        for step in diag.suggested_steps:
-            console.print(f"    - {step}")
-
-    if diag.knowledge_base_match:
-        console.print(f"  [bold cyan]General Knowledge Base:[/] {diag.knowledge_base_match}")
 
     if diag.similar_incidents:
         console.print(f"\n  [bold cyan]Memory Matches ({len(diag.similar_incidents)}):[/]")
         for inc in diag.similar_incidents:
             scope = "[magenta]Cross-Project[/]" if inc.is_cross_project else "[blue]Project History[/]"
-            fix_status = f" | [green]Verified Fix:[/] {inc.verified_fix}" if inc.verified_fix else ""
-            console.print(f"    - {scope} ({inc.project_name}, match {int(inc.similarity_score * 100)}%): {inc.summary}{fix_status}")
+            console.print(f"    - {scope} ({inc.project_name}): {inc.summary}")
 
 
 @app.command(
@@ -354,9 +341,14 @@ def run(
     cwd = Path.cwd().resolve()
     project_root, proj_config = _find_project_root(cwd)
 
-    project_id = proj_config.get("project_id", "unregistered") if proj_config else "unregistered"
+    project_id = proj_config.get("project_id") if proj_config else None
     project_name = proj_config.get("project_name", cwd.name) if proj_config else cwd.name
     backend_url = proj_config.get("backend_url", DEFAULT_BACKEND_URL) if proj_config else DEFAULT_BACKEND_URL
+
+    # Auto-initialize project identifier if not yet configured
+    client = DevMemoryClient(base_url=backend_url)
+    if not project_id:
+        project_id = str(uuid.uuid4())
 
     runner = CommandRunner()
     result = runner.run(cmd_args, cwd=cwd)
@@ -394,25 +386,27 @@ def run(
     event_id = str(uuid.uuid4())
     sanitized_stdout = redact_secrets(result.stdout)
     sanitized_stderr = redact_secrets(result.stderr)
-    error_payload = _convert_diagnostic_to_payload(diagnostic)
+    error_context = _convert_diagnostic_to_backend_context(diagnostic)
+
+    # Ensure project is registered in backend before run ingestion
+    client.register_project(project_id=project_id, name=project_name)
 
     payload = IncidentPayload(
         event_id=event_id,
         project_id=project_id,
         project_name=project_name,
-        command=cmd_args,
+        command=cmd_display,  # Serialized command string matching RunCreate schema
         cwd=result.cwd,
         started_at=result.started_at,
         ended_at=result.ended_at,
-        duration_ms=result.duration_ms,
+        duration_ms=int(result.duration_ms),  # Integer duration in milliseconds
         exit_code=result.exit_code,
         interrupted=result.interrupted,
         stdout=sanitized_stdout,
         stderr=sanitized_stderr,
-        error_info=error_payload,
+        error_context=error_context,
     )
 
-    client = DevMemoryClient(base_url=backend_url)
     ingestion_result = client.submit_incident(payload)
     _render_backend_report(ingestion_result)
 
