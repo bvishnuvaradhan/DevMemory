@@ -15,11 +15,40 @@ class FixOutcomeCreate(BaseModel):
         max_length=128,
         description="Optional client-specified stable fix ID for idempotency",
     )
+    diagnosis_id: Optional[str] = Field(
+        default=None,
+        max_length=128,
+        description="Optional link to the diagnosis that proposed this fix",
+    )
     description: str = Field(
         ...,
         min_length=1,
         max_length=2000,
         description="Explanation of the proposed solution or code fix",
+    )
+
+
+class FixVerificationRecordRequest(BaseModel):
+    """Payload to record verification command or test execution results."""
+
+    exit_code: int = Field(
+        ...,
+        description="Exit code of the verification command (0 indicates success)",
+    )
+    command: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description="Verification command that was executed",
+    )
+    details: Optional[str] = Field(
+        default=None,
+        max_length=5000,
+        description="Sanitized stdout/stderr summary or test outcome details",
+    )
+    source: Optional[str] = Field(
+        default="automated_command",
+        max_length=100,
+        description="Verification source ('automated_command', 'test_runner', 'user_confirmation')",
     )
 
 
@@ -29,6 +58,11 @@ class FixOutcomeUpdate(BaseModel):
     status: Optional[FixStatus] = Field(
         default=None,
         description="Target lifecycle state ('applied', 'verifying', 'verified', 'failed', 'reverted')",
+    )
+    diagnosis_id: Optional[str] = Field(
+        default=None,
+        max_length=128,
+        description="Optional link to diagnosis",
     )
     description: Optional[str] = Field(
         default=None,
@@ -67,6 +101,7 @@ class FixOutcomeResponse(BaseModel):
     fix_id: str
     incident_id: str
     project_id: str
+    diagnosis_id: Optional[str] = None
     description: str
     status: str
     verification_method: Optional[str] = None

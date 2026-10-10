@@ -1,6 +1,6 @@
 """Incident registration, retrieval, historical memory, diagnosis, and fix tracking API routes."""
 
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pymongo.database import Database
 
@@ -226,6 +226,19 @@ async def list_fixes_endpoint(
     return ResponseEnvelope[PaginatedResponse[FixOutcomeResponse]](
         success=True, data=fixes, error=None
     )
+
+
+@router.get(
+    "/{incident_id}/fixes/verified",
+    response_model=ResponseEnvelope[List[FixOutcomeResponse]],
+    summary="List verified fixes for an incident",
+)
+async def get_verified_incident_fixes_endpoint(
+    incident_id: str,
+    db: Database = Depends(get_database),
+):
+    fixes = fix_service.get_verified_fixes_for_incident(db, incident_id=incident_id)
+    return ResponseEnvelope[List[FixOutcomeResponse]](success=True, data=fixes, error=None)
 
 
 # --- Incident Embedding Endpoints ---

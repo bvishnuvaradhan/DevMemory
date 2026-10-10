@@ -63,23 +63,31 @@ class MongoIncidentRepository:
                     enriched["stack_trace"] = run_doc.get("stderr", "")
 
         # Enrich fix outcome and verification status if present
-        if not enriched.get("verification_status") or enriched.get("verification_status") == "unverified":
-            fix = self.db.fix_outcomes.find_one(
+        verified_fix = self.db.fix_outcomes.find_one(
+            {"incident_id": inc_id, "status": "verified"},
+            sort=[("verified_at", -1), ("created_at", -1)],
+        )
+        if verified_fix:
+            enriched["verification_status"] = "verified"
+            if not enriched.get("resolution_summary"):
+                enriched["resolution_summary"] = verified_fix.get("description")
+        else:
+            latest_fix = self.db.fix_outcomes.find_one(
                 {"incident_id": inc_id},
                 sort=[("created_at", -1)],
             )
-            if fix:
-                fix_stat = fix.get("status")
-                if fix_stat == "verified":
-                    enriched["verification_status"] = "verified"
-                elif fix_stat in ("failed", "reverted"):
+            if latest_fix:
+                latest_stat = latest_fix.get("status")
+                if latest_stat in ("failed", "reverted"):
                     enriched["verification_status"] = "failed"
                 else:
                     enriched["verification_status"] = "unverified"
-                if not enriched.get("resolution_summary"):
-                    enriched["resolution_summary"] = fix.get("description")
-            else:
+            elif not enriched.get("verification_status"):
                 enriched["verification_status"] = "unverified"
+
+            # Strict Unverified Fix Guarantee: Unverified/failed fixes must never leak as proven solutions
+            if enriched.get("verification_status") != "verified":
+                enriched["resolution_summary"] = None
 
         enriched["is_public"] = bool(enriched.get("is_public", False))
         enriched["disclose_project_id"] = bool(enriched.get("disclose_project_id", False))

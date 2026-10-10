@@ -1,14 +1,19 @@
 """Service layer for fix outcome lifecycle tracking and evidence verification."""
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 from uuid import uuid4
 from fastapi import HTTPException, status
 from pymongo import DESCENDING
 from pymongo.database import Database
 from pymongo.errors import DuplicateKeyError
 
-from app.schemas.fix import FixOutcomeCreate, FixOutcomeResponse, FixOutcomeUpdate
+from app.schemas.fix import (
+    FixOutcomeCreate,
+    FixOutcomeResponse,
+    FixOutcomeUpdate,
+    FixVerificationRecordRequest,
+)
 from app.schemas.pagination import PaginatedResponse
 
 # Valid status transitions state machine
@@ -35,6 +40,15 @@ def create_fix(
             detail=f"Incident with ID '{incident_id}' not found.",
         )
 
+    # If diagnosis_id is provided and exists in db.diagnoses, verify it matches incident_id
+    if payload.diagnosis_id:
+        diag = db.diagnoses.find_one({"diagnosis_id": payload.diagnosis_id})
+        if diag and diag.get("incident_id") != incident_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Diagnosis '{payload.diagnosis_id}' belongs to incident '{diag.get('incident_id')}', not '{incident_id}'.",
+            )
+
     project_id = incident["project_id"]
     fix_id = payload.fix_id or f"fix_{uuid4().hex[:12]}"
     now = datetime.now(timezone.utc)
@@ -43,6 +57,7 @@ def create_fix(
         "fix_id": fix_id,
         "incident_id": incident_id,
         "project_id": project_id,
+        "diagnosis_id": payload.diagnosis_id,
         "description": payload.description,
         "status": "proposed",
         "verification_method": None,
@@ -60,6 +75,11 @@ def create_fix(
     except DuplicateKeyError:
         existing = db.fix_outcomes.find_one({"fix_id": fix_id}, {"_id": 0})
         if existing:
+            if existing.get("incident_id") != incident_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Fix ID '{fix_id}' already exists for another incident.",
+                )
             return FixOutcomeResponse(**existing)
         raise
 
@@ -159,6 +179,8 @@ def update_fix(
         update_fields["status"] = target_status
     if payload.description is not None:
         update_fields["description"] = payload.description
+    if payload.diagnosis_id is not None:
+        update_fields["diagnosis_id"] = payload.diagnosis_id
     if payload.verification_method is not None:
         update_fields["verification_method"] = payload.verification_method
     if payload.verification_command is not None:
@@ -211,3 +233,113 @@ def list_incident_fixes(
         limit=limit,
         skip=skip,
     )
+
+
+def record_fix_verification(
+    db: Database,
+    fix_id: str,
+    payload: FixVerificationRecordRequest,
+) -> FixOutcomeResponse:
+    """Record execution results for an automated or manual fix verification command.
+
+    If exit_code == 0:
+        Transitions the fix to 'verified' with timestamp and evidence.
+    If exit_code != 0:
+        Transitions the fix to 'failed', clears verified_at, and records error details.
+    """
+    existing = db.fix_outcomes.find_one({"fix_id": fix_id})
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Fix with ID '{fix_id}' not found.",
+        )
+
+    now = datetime.now(timezone.utc)
+    if payload.exit_code == 0:
+        new_status = "verified"
+        verified_at = now
+    else:
+        new_status = "failed"
+        verified_at = None
+
+    update_fields = {
+        "status": new_status,
+        "verification_method": "command",
+        "verification_command": payload.command,
+        "verification_exit_code": payload.exit_code,
+        "verification_details": payload.details,
+        "verification_source": payload.source or "automated_command",
+        "verified_at": verified_at,
+        "updated_at": now,
+    }
+
+    db.fix_outcomes.update_one({"fix_id": fix_id}, {"$set": update_fields})
+    updated_doc = db.fix_outcomes.find_one({"fix_id": fix_id}, {"_id": 0})
+    return FixOutcomeResponse(**updated_doc)
+
+
+def get_verified_fixes_for_incident(
+    db: Database,
+    incident_id: str,
+) -> List[FixOutcomeResponse]:
+    """Retrieve all verified fixes for a specific incident."""
+    incident = db.incidents.find_one({"incident_id": incident_id})
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident with ID '{incident_id}' not found.",
+        )
+
+    cursor = (
+        db.fix_outcomes.find(
+            {"incident_id": incident_id, "status": "verified"},
+            {"_id": 0},
+        )
+        .sort([("verified_at", DESCENDING), ("created_at", DESCENDING)])
+    )
+    return [FixOutcomeResponse(**d) for d in cursor]
+
+
+def query_verified_fixes(
+    db: Database,
+    error_signature: Optional[str] = None,
+    project_id: Optional[str] = None,
+    limit: int = 20,
+) -> List[FixOutcomeResponse]:
+    """Query verified fixes across incidents for recommendation and learning.
+
+    Filters by error_signature and/or project_id, ensuring only verified fixes (status='verified')
+    are returned.
+    """
+    limit = max(1, min(limit, 100))
+
+    if error_signature:
+        inc_filter = {"error_signature": error_signature}
+        if project_id:
+            inc_filter["project_id"] = project_id
+        incidents = list(db.incidents.find(inc_filter, {"incident_id": 1, "_id": 0}))
+        incident_ids = [inc["incident_id"] for inc in incidents]
+        if not incident_ids:
+            return []
+        fix_filter = {
+            "incident_id": {"$in": incident_ids},
+            "status": "verified",
+        }
+        if project_id:
+            fix_filter["project_id"] = project_id
+    elif project_id:
+        fix_filter = {
+            "project_id": project_id,
+            "status": "verified",
+        }
+    else:
+        fix_filter = {
+            "status": "verified",
+        }
+
+    cursor = (
+        db.fix_outcomes.find(fix_filter, {"_id": 0})
+        .sort([("verified_at", DESCENDING), ("created_at", DESCENDING)])
+        .limit(limit)
+    )
+    return [FixOutcomeResponse(**d) for d in cursor]

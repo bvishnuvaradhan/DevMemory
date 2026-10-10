@@ -21,6 +21,7 @@ from app.schemas.fix import (
     FixOutcomeResponse,
     FixOutcomeUpdate,
     FixStatus,
+    FixVerificationRecordRequest,
 )
 from app.schemas.incident import (
     IncidentCreate,
@@ -88,6 +89,7 @@ __all__ = [
     "FixOutcomeResponse",
     "FixOutcomeUpdate",
     "FixStatus",
+    "FixVerificationRecordRequest",
     "RegressionStatus",
     "PerformanceMeasurementCreate",
     "PerformanceMeasurementResponse",
