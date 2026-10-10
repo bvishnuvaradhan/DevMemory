@@ -321,7 +321,8 @@ class ConfigurableDenseEmbeddingProvider:
 
         # Check external AI opt-out privacy policy
         if os.getenv("DEV_MEMORY_DISABLE_EXTERNAL_AI", "").lower() in ("1", "true", "yes") or \
-           os.getenv("DEVMEMORY_OFFLINE_MODE", "").lower() in ("1", "true", "yes"):
+           os.getenv("DEVMEMORY_OFFLINE_MODE", "").lower() in ("1", "true", "yes") or \
+           os.getenv("AI_PRIVACY_OFFLINE_ONLY", "").lower() in ("1", "true", "yes"):
             logger.info("External AI inference disabled by privacy configuration; using deterministic fallback.")
             return self._execute_fallback(clean_text, EmbeddingStatus.OFFLINE_OPT_OUT, "Privacy opt-out enabled")
 

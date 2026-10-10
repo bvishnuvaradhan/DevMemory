@@ -133,6 +133,7 @@ def diagnose_error(
     # 1. Check external AI privacy opt-out
     offline_only = bool(disable_external_inference) or (
         os.getenv("DEV_MEMORY_DISABLE_EXTERNAL_AI", "").lower() in ("1", "true", "yes")
+        or os.getenv("DEVMEMORY_OFFLINE_MODE", "").lower() in ("1", "true", "yes")
         or os.getenv("AI_PRIVACY_OFFLINE_ONLY", "").lower() in ("1", "true", "yes")
     )
 
@@ -212,6 +213,12 @@ def diagnose_error(
         if isinstance(data.get("evidence"), list):
             data["evidence"] = [
                 redact_secrets(sanitize_file_path(str(e))) for e in data["evidence"]
+            ]
+        if isinstance(data.get("uncertainty_description"), str):
+            data["uncertainty_description"] = redact_secrets(sanitize_file_path(data["uncertainty_description"]))
+        if isinstance(data.get("verification_steps"), list):
+            data["verification_steps"] = [
+                redact_secrets(sanitize_file_path(str(v))) for v in data["verification_steps"]
             ]
 
         return DiagnosisResponse.model_validate(data)

@@ -48,6 +48,7 @@ GITHUB_TOKEN_REGEX = re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b")
 SLACK_TOKEN_REGEX = re.compile(r"\bxox[baprs]-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9_\-]*\b")
 STRIPE_KEY_REGEX = re.compile(r"\b(?:sk|rk)_(?:live|test)_[0-9a-zA-Z]{24,}\b")
 SENDGRID_KEY_REGEX = re.compile(r"\bSG\.[0-9a-zA-Z_-]{16,32}\.[0-9a-zA-Z_-]{32,64}\b")
+OPENAI_KEY_REGEX = re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_\-]{20,}\b")
 GENERIC_API_KEY_REGEX = re.compile(r"\b(?:gsk|sk|key)_[A-Za-z0-9_\-]{20,}\b")
 
 # Connection Strings with Embedded Credentials (plain or percent-encoded)
@@ -130,6 +131,7 @@ def redact_secrets(text: Optional[str]) -> str:
     sanitized = SLACK_TOKEN_REGEX.sub("[REDACTED_SLACK_TOKEN]", sanitized)
     sanitized = STRIPE_KEY_REGEX.sub("[REDACTED_STRIPE_KEY]", sanitized)
     sanitized = SENDGRID_KEY_REGEX.sub("[REDACTED_SENDGRID_KEY]", sanitized)
+    sanitized = OPENAI_KEY_REGEX.sub("[REDACTED_API_KEY]", sanitized)
     sanitized = GENERIC_API_KEY_REGEX.sub("[REDACTED_API_KEY]", sanitized)
 
     # 6. Key-value pairs with sensitive names
@@ -296,6 +298,9 @@ def validate_outbound_payload_safety(text: str) -> Dict[str, Any]:
 
     if STRIPE_KEY_REGEX.search(text):
         violations.append("Contains unredacted Stripe secret key")
+
+    if OPENAI_KEY_REGEX.search(text):
+        violations.append("Contains unredacted OpenAI secret key")
 
     # Check for raw passwords in URL connection strings (ignore already redacted ones)
     url_cred_matches = URL_CREDENTIAL_REGEX.findall(text)
