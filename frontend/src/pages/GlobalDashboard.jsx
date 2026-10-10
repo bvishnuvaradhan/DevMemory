@@ -19,6 +19,8 @@ import {
   Repeat,
   ShieldCheck,
   TrendingUp,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import StatCard from '../components/common/StatCard';
 import ProjectsGrid from '../components/dashboard/ProjectsGrid';
@@ -33,6 +35,8 @@ export default function GlobalDashboard({ onDataLoaded }) {
   const [refreshing, setRefreshing] = useState(false);
   const [overview, setOverview] = useState(null);
   const [isMock, setIsMock] = useState(true);
+  const [isWorkspacesExpanded, setIsWorkspacesExpanded] = useState(true);
+  const [showAllWorkspaces, setShowAllWorkspaces] = useState(false);
   const location = useLocation();
 
   const loadData = async (isManualRefresh = false) => {
@@ -128,15 +132,56 @@ export default function GlobalDashboard({ onDataLoaded }) {
         />
       </div>
 
-      {/* Section 1: Registered Projects Grid */}
+      {/* Section 1: Registered Workspaces Grid */}
       <div>
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">Registered Project Workspaces</h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">Select a project to explore its runs, diagnoses, and memory bank.</p>
+        <div className="mb-4">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+              Workspaces
+            </h2>
+            {Array.isArray(projects) && projects.length > 0 && (
+              <span className="rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2 py-0.5 text-xs font-mono font-medium border border-slate-200/80 dark:border-slate-700">
+                {projects.length}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsWorkspacesExpanded((prev) => !prev)}
+              aria-expanded={isWorkspacesExpanded}
+              aria-controls="workspaces-content-section"
+              aria-label={isWorkspacesExpanded ? 'Hide Workspaces' : 'Show Workspaces'}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 px-2.5 py-1 text-xs font-mono font-medium text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700/80 shadow-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            >
+              {isWorkspacesExpanded ? (
+                <>
+                  <ChevronUp className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
+                  <span>Hide</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
+                  <span>Show</span>
+                </>
+              )}
+            </button>
           </div>
+          {isWorkspacesExpanded && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Select a project to explore its runs, diagnoses, and memory bank.
+            </p>
+          )}
         </div>
-        <ProjectsGrid projects={projects} />
+
+        {isWorkspacesExpanded && (
+          <div id="workspaces-content-section">
+            <ProjectsGrid
+              projects={projects}
+              initialLimit={4}
+              showAll={showAllWorkspaces}
+              onToggleShowAll={() => setShowAllWorkspaces((prev) => !prev)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Section 2: Recent Command Runs Table */}
