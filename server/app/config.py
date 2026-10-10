@@ -41,6 +41,18 @@ class Settings(BaseSettings):
         default=2000,
         description="Server selection timeout for MongoDB in milliseconds",
     )
+    PERFORMANCE_REGRESSION_PERCENT_THRESHOLD: float = Field(
+        default=30.0,
+        description="Percentage duration increase above baseline to flag as potential regression",
+    )
+    PERFORMANCE_REGRESSION_ABS_MS_THRESHOLD: float = Field(
+        default=100.0,
+        description="Absolute duration increase in ms above baseline to flag as potential regression",
+    )
+    PERFORMANCE_BASELINE_MIN_SAMPLES: int = Field(
+        default=5,
+        description="Minimum number of successful observations required to calculate a baseline",
+    )
 
 
 @lru_cache

@@ -24,6 +24,15 @@ from app.schemas.fix import (
 )
 from app.schemas.incident import IncidentCreate, IncidentResponse
 from app.schemas.pagination import PaginatedResponse
+from app.schemas.performance import (
+    BaselineCalculationRequest,
+    CommandPerformanceSummary,
+    PerformanceAnalyticsResponse,
+    PerformanceBaselineResponse,
+    PerformanceMeasurementCreate,
+    PerformanceMeasurementResponse,
+    RegressionStatus,
+)
 from app.schemas.project import ProjectCreate, ProjectResponse
 from app.schemas.run import EnvironmentInfo, ErrorContext, RunCreate, RunResponse
 
@@ -70,4 +79,11 @@ __all__ = [
     "FixOutcomeResponse",
     "FixOutcomeUpdate",
     "FixStatus",
+    "RegressionStatus",
+    "PerformanceMeasurementCreate",
+    "PerformanceMeasurementResponse",
+    "BaselineCalculationRequest",
+    "PerformanceBaselineResponse",
+    "CommandPerformanceSummary",
+    "PerformanceAnalyticsResponse",
 ]

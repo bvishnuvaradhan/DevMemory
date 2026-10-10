@@ -82,6 +82,56 @@ FIX_OUTCOMES_VALIDATOR = {
     }
 }
 
+PERFORMANCE_RUNS_VALIDATOR = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": [
+            "event_id",
+            "project_id",
+            "command_signature",
+            "duration_ms",
+            "exit_code",
+            "timestamp",
+            "created_at",
+        ],
+        "properties": {
+            "event_id": {"bsonType": "string"},
+            "project_id": {"bsonType": "string"},
+            "command_signature": {"bsonType": "string"},
+            "command_label": {"bsonType": "string"},
+            "duration_ms": {"bsonType": ["int", "long", "double"]},
+            "exit_code": {"bsonType": "int"},
+            "timestamp": {"bsonType": "date"},
+            "regression_status": {
+                "enum": ["unknown", "normal", "potential_regression"]
+            },
+            "baseline_duration_ms": {"bsonType": ["int", "long", "double", "null"]},
+            "created_at": {"bsonType": "date"},
+        },
+    }
+}
+
+PERFORMANCE_BASELINES_VALIDATOR = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": [
+            "project_id",
+            "command_signature",
+            "baseline_duration_ms",
+            "sample_count",
+            "calculated_at",
+        ],
+        "properties": {
+            "project_id": {"bsonType": "string"},
+            "command_signature": {"bsonType": "string"},
+            "command_label": {"bsonType": "string"},
+            "baseline_duration_ms": {"bsonType": ["int", "long", "double"]},
+            "sample_count": {"bsonType": "int"},
+            "calculated_at": {"bsonType": "date"},
+        },
+    }
+}
+
 
 def _ensure_collection_with_validator(db: Database, name: str, validator: dict) -> None:
     """Create collection with schema validator if missing, or update validator safely."""
@@ -110,6 +160,8 @@ def init_indexes(db: Database) -> None:
     _ensure_collection_with_validator(db, "incidents", INCIDENTS_VALIDATOR)
     _ensure_collection_with_validator(db, "diagnoses", DIAGNOSES_VALIDATOR)
     _ensure_collection_with_validator(db, "fix_outcomes", FIX_OUTCOMES_VALIDATOR)
+    _ensure_collection_with_validator(db, "performance_runs", PERFORMANCE_RUNS_VALIDATOR)
+    _ensure_collection_with_validator(db, "performance_baselines", PERFORMANCE_BASELINES_VALIDATOR)
 
     # 2. Projects indexes
     try:
@@ -178,5 +230,37 @@ def init_indexes(db: Database) -> None:
         )
     except Exception as exc:
         logger.warning("Index error on fix_outcomes: %s", exc)
+
+    # 7. Performance runs indexes
+    try:
+        db.performance_runs.create_index("event_id", unique=True, name="idx_perf_event_id_unique")
+        db.performance_runs.create_index(
+            [("project_id", ASCENDING), ("timestamp", DESCENDING)],
+            name="idx_perf_project_timestamp",
+        )
+        db.performance_runs.create_index(
+            [("project_id", ASCENDING), ("command_signature", ASCENDING), ("timestamp", DESCENDING)],
+            name="idx_perf_project_cmd_timestamp",
+        )
+        db.performance_runs.create_index(
+            [("project_id", ASCENDING), ("regression_status", ASCENDING), ("timestamp", DESCENDING)],
+            name="idx_perf_project_regression_timestamp",
+        )
+    except Exception as exc:
+        logger.warning("Index error on performance_runs: %s", exc)
+
+    # 8. Performance baselines indexes
+    try:
+        db.performance_baselines.create_index(
+            [("project_id", ASCENDING), ("command_signature", ASCENDING)],
+            unique=True,
+            name="idx_perf_baselines_proj_cmd_unique",
+        )
+        db.performance_baselines.create_index(
+            [("project_id", ASCENDING), ("calculated_at", DESCENDING)],
+            name="idx_perf_baselines_proj_calculated",
+        )
+    except Exception as exc:
+        logger.warning("Index error on performance_baselines: %s", exc)
 
     logger.info("MongoDB indexes and collection validators verified successfully.")

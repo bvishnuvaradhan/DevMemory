@@ -35,7 +35,15 @@ def test_mongo_client():
 def test_db(test_mongo_client):
     """Function-level fixture ensuring clean collections for each test."""
     db = test_mongo_client[TEST_DB_NAME]
-    for col in ["projects", "command_runs", "incidents", "diagnoses", "fix_outcomes"]:
+    for col in [
+        "projects",
+        "command_runs",
+        "incidents",
+        "diagnoses",
+        "fix_outcomes",
+        "performance_runs",
+        "performance_baselines",
+    ]:
         db[col].delete_many({})
 
     init_indexes(db)

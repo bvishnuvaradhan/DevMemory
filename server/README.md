@@ -253,6 +253,161 @@ proposed ──────┼────────────────�
 
 ---
 
+## Phase 5: Performance Monitoring & Regression Analytics
+
+DevMemory records command execution durations, establishes statistical baselines for comparable command signatures, and flags potential performance regressions before they reach production.
+
+### Performance Measurement Schema (`performance_runs`)
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `event_id` | String | Unique, stable reference to the underlying command-run event. |
+| `project_id` | String | Associated project identifier. |
+| `command_signature` | String | Deterministic normalized hash identifying comparable command invocations across environments. |
+| `command_label` | String | Sanitized display label with sensitive parameters and private paths redacted. |
+| `duration_ms` | Integer | Measured execution duration in milliseconds (`ge=0`). |
+| `exit_code` | Integer | Actual command exit code (0 indicates success). |
+| `timestamp` | Date | UTC timestamp when execution took place. |
+| `environment` | Object | Optional execution environment metadata (OS, runtime, git branch/commit). |
+| `baseline_duration_ms` | Float / Null | Snapshot of the active baseline at the time the measurement was recorded. |
+| `regression_status` | String | Status evaluation: `"unknown"`, `"normal"`, or `"potential_regression"`. |
+| `created_at` | Date | Record persistence timestamp. |
+
+### Baseline Calculation Method
+
+- **Robust Metric**: Uses the **median** rather than the arithmetic mean to protect baselines from anomalous spikes and transient outliers.
+- **Minimum Observations**: Requires at least `PERFORMANCE_BASELINE_MIN_SAMPLES` (default: 5) valid, successful (`exit_code == 0`, `duration_ms >= 0`) runs.
+- **No Fabrication**: If fewer than 5 valid observations exist, the API returns `status: "insufficient_data"` and `baseline_duration_ms: null`.
+
+### Regression Detection Formula & Dual Thresholds
+
+A new execution is flagged as `potential_regression` only when its execution time exceeds the baseline across **both** of the following configurable gates:
+1. **Relative Threshold**: Duration increase exceeds `PERFORMANCE_REGRESSION_PERCENT_THRESHOLD` (default: **30%** above baseline).
+2. **Absolute Threshold**: Duration increase exceeds `PERFORMANCE_REGRESSION_ABS_MS_THRESHOLD` (default: **100 ms** above baseline).
+
+$$\Delta_{\text{ms}} = \text{duration\_ms} - \text{baseline\_duration\_ms}$$
+$$\Delta_{\%} = \frac{\Delta_{\text{ms}}}{\text{baseline\_duration\_ms}} \times 100$$
+$$\text{potential\_regression} \iff (\Delta_{\%} > 30\%) \land (\Delta_{\text{ms}} > 100\,\text{ms})$$
+
+If no baseline exists, the measurement is marked `unknown`.
+
+#### Potential Regression vs. Confirmed Performance Defect
+- **Potential Regression**: An automated statistical anomaly signal indicating that execution time materially diverged from established history under comparable invocation arguments.
+- **Failed Runs (`exit_code != 0`)**: Excluded from regression classification (`unknown`) so command failures, syntax errors, or aborted runs are not falsely labeled as performance defects.
+- **Confirmed Defect**: Requires empirical verification or recurring regression across multiple consecutive runs.
+
+---
+
+### Performance Endpoints
+
+#### 1. Ingest Performance Measurement
+- **Endpoint**: `POST /api/v1/performance`
+- **Behavior**: Validates referenced run and project, evaluates regression against active baseline, prevents duplicate event records.
+
+**Request**:
+```json
+{
+  "event_id": "evt_perf_001",
+  "project_id": "proj_shopapp"
+}
+```
+
+**Response (HTTP 201 Created)**:
+```json
+{
+  "success": true,
+  "data": {
+    "event_id": "evt_perf_001",
+    "project_id": "proj_shopapp",
+    "command_signature": "cmd_pytest_b38c291fa120",
+    "command_label": "pytest tests/api",
+    "duration_ms": 320,
+    "exit_code": 0,
+    "timestamp": "2026-10-10T12:00:00Z",
+    "baseline_duration_ms": 200.0,
+    "regression_status": "potential_regression",
+    "created_at": "2026-10-10T12:00:05Z",
+    "idempotent": false
+  },
+  "error": null
+}
+```
+
+#### 2. Calculate Command Baseline
+- **Endpoint**: `POST /api/v1/projects/{project_id}/performance/baseline`
+- **Request Body (Optional)**: `{"command_signature": "cmd_pytest_b38c291fa120", "min_samples": 5}`
+
+**Response (HTTP 200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "project_id": "proj_shopapp",
+    "command_signature": "cmd_pytest_b38c291fa120",
+    "command_label": "pytest tests/api",
+    "baseline_duration_ms": 200.0,
+    "sample_count": 5,
+    "min_samples_required": 5,
+    "status": "established",
+    "metric": "median",
+    "min_duration_ms": 190.0,
+    "max_duration_ms": 215.0,
+    "mean_duration_ms": 201.0,
+    "calculated_at": "2026-10-10T12:00:00Z",
+    "message": "Baseline established using 5 observations (median: 200.0ms)."
+  },
+  "error": null
+}
+```
+
+#### 3. List Established Baselines
+- **Endpoint**: `GET /api/v1/projects/{project_id}/performance/baselines`
+- **Query Params**: `command_signature` (optional)
+
+#### 4. Performance Measurement History
+- **Endpoint**: `GET /api/v1/projects/{project_id}/performance`
+- **Query Params**: `limit` (default: 50), `skip` (default: 0), `command_signature` (optional), `regression_status` (optional)
+
+#### 5. Project Performance Analytics
+- **Endpoint**: `GET /api/v1/projects/{project_id}/performance/analytics`
+
+**Response (HTTP 200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "project_id": "proj_shopapp",
+    "total_measurements": 25,
+    "successful_measurements": 23,
+    "failed_measurements": 2,
+    "average_duration_ms": 215.4,
+    "median_duration_ms": 202.0,
+    "potential_regressions_count": 2,
+    "latest_measurement_at": "2026-10-10T12:00:00Z",
+    "commands": [
+      {
+        "command_signature": "cmd_pytest_b38c291fa120",
+        "command_label": "pytest tests/api",
+        "total_runs": 20,
+        "successful_runs": 19,
+        "failed_runs": 1,
+        "average_duration_ms": 205.0,
+        "median_duration_ms": 200.0,
+        "min_duration_ms": 190.0,
+        "max_duration_ms": 320.0,
+        "potential_regressions_count": 1,
+        "baseline_duration_ms": 200.0,
+        "latest_duration_ms": 320.0,
+        "latest_run_at": "2026-10-10T12:00:00Z"
+      }
+    ]
+  },
+  "error": null
+}
+```
+
+---
+
 ## MongoDB Indexes and Supported Queries
 
 All indexes are verified and initialized idempotently during startup via `init_indexes`:
@@ -273,3 +428,9 @@ All indexes are verified and initialized idempotently during startup via `init_i
 | `fix_outcomes` | `idx_fixes_id_unique` | `{ fix_id: 1 }` (unique) | Unique fix lookup and patching |
 | `fix_outcomes` | `idx_fixes_project_incident_created` | `{ project_id: 1, incident_id: 1, created_at: -1 }` | Project-scoped fix queries |
 | `fix_outcomes` | `idx_fixes_incident_created` | `{ incident_id: 1, created_at: -1 }` | Paginated fixes for an incident |
+| `performance_runs` | `idx_perf_event_id_unique` | `{ event_id: 1 }` (unique) | Idempotent measurement persistence and run linking |
+| `performance_runs` | `idx_perf_project_timestamp` | `{ project_id: 1, timestamp: -1 }` | Paginated project performance history sorted newest first |
+| `performance_runs` | `idx_perf_project_cmd_timestamp` | `{ project_id: 1, command_signature: 1, timestamp: -1 }` | Command-specific performance history and baseline queries |
+| `performance_runs` | `idx_perf_project_regression_timestamp` | `{ project_id: 1, regression_status: 1, timestamp: -1 }` | Performance regression alerts and status filtering |
+| `performance_baselines` | `idx_perf_baselines_proj_cmd_unique` | `{ project_id: 1, command_signature: 1 }` (unique) | Project-command baseline lookup and upsert |
+| `performance_baselines` | `idx_perf_baselines_proj_calculated` | `{ project_id: 1, calculated_at: -1 }` | Latest baseline retrieval |
