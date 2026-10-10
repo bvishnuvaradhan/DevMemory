@@ -7,6 +7,7 @@ address the actual failure without altering intended business logic or inventing
 
 from __future__ import annotations
 
+from pathlib import Path
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -69,6 +70,255 @@ def _extract_function_name(stack_trace: Optional[str]) -> Optional[str]:
         fn = matches[-1].group(1)
         if fn != "<module>":
             return fn
+    return None
+
+
+def _collect_source_text(
+    source_snippet: Optional[str],
+    file_path: Optional[str],
+) -> str:
+    """Collect source code text from filesystem if accessible, otherwise extract from snippet."""
+    if file_path:
+        try:
+            p = Path(file_path)
+            if p.is_file() and p.stat().st_size <= 256 * 1024:
+                content = p.read_text(encoding="utf-8", errors="replace")
+                if content.strip():
+                    return content
+        except Exception:
+            pass
+
+    if source_snippet:
+        cleaned_lines = []
+        for l in source_snippet.splitlines():
+            m = re.match(r"^\s*>?\s*\d+\s*\|\s*(.*)$", l)
+            if m:
+                cleaned_lines.append(m.group(1))
+            else:
+                cleaned_lines.append(l)
+        return "\n".join(cleaned_lines)
+
+    return ""
+
+
+def _detect_language_mismatch(
+    source_snippet: Optional[str],
+    file_path: Optional[str],
+    error_type: str,
+    error_message: str,
+    line: Optional[int],
+    code_line: Optional[str],
+    loc_str: str,
+) -> Optional[RefinedDiagnosis]:
+    """Detect when a file executed by Python appears to contain C/C++, Java, or Go source code."""
+    source_text = _collect_source_text(source_snippet, file_path)
+    if not source_text or not source_text.strip():
+        return None
+
+    # Derive filenames and stems safely
+    fname = "The source file"
+    stem = "source"
+    if file_path:
+        fname = file_path.replace("\\", "/").split("/")[-1]
+        stem = Path(file_path).stem or "source"
+
+    # Filter out pure Python comments for keyword checks,
+    # but preserve preprocessor directives (which start with #include, #define, etc.)
+    non_comment_lines = []
+    for raw_l in source_text.splitlines():
+        stripped = raw_l.strip()
+        if stripped.startswith("#"):
+            if re.match(r"^#(?:include|define|pragma|ifdef|ifndef|endif)\b", stripped):
+                non_comment_lines.append(raw_l)
+        else:
+            non_comment_lines.append(raw_l)
+    code_body = "\n".join(non_comment_lines)
+
+    # -------------------------------------------------------------------------
+    # 1. C / C++ Detection
+    # -------------------------------------------------------------------------
+    c_indicators: List[str] = []
+
+    # Category A: Preprocessor
+    if re.search(r"^\s*#include\s*[<\"].+?[>\"]", source_text, re.MULTILINE):
+        c_indicators.append("`#include`")
+    elif re.search(r"^\s*#define\s+[A-Za-z0-9_]+", source_text, re.MULTILINE):
+        c_indicators.append("`#define`")
+
+    # Category B: Main entry
+    if re.search(r"\b(?:int|void)\s+main\s*\([^)]*\)", code_body):
+        c_indicators.append("`int main()`")
+
+    # Category C: C/C++ I/O & memory functions
+    has_cout = bool(re.search(r"\b(?:std::cout|std::cin|std::endl|std::vector|std::string)\b|\bcout\s*<<|\bcin\s*>>", code_body))
+    has_printf = bool(re.search(r"\b(?:printf|scanf|puts|malloc|free|fprintf)\s*\(", code_body))
+    if has_cout:
+        c_indicators.append("`std::cout`")
+    elif has_printf:
+        c_indicators.append("`printf()`")
+
+    # Category D: Constructs (using namespace, type declarations ending with ;)
+    if re.search(r"\busing\s+namespace\s+std\s*;", code_body):
+        c_indicators.append("`using namespace std`")
+    elif re.search(r"\b(?:int|float|double|char|void|size_t|bool)\s+[a-zA-Z0-9_*]+\s*(?:=\s*[^;]+)?\s*;", code_body):
+        c_indicators.append("C-style variable declaration")
+
+    if len(c_indicators) >= 2:
+        is_cpp = has_cout or "using namespace std" in " ".join(c_indicators) or bool(re.search(r"\b(?:<iostream>|<vector>|<string>)\b", source_text))
+        lang_name = "C++" if is_cpp else "C"
+        ext = "cpp" if is_cpp else "c"
+        compiler = "an installed C++ compiler such as G++ or Clang++" if is_cpp else "an installed C compiler such as GCC or Clang"
+        target_name = f"{stem}.{ext}"
+        constructs_str = " and ".join(c_indicators[:2])
+
+        likely_cause = (
+            f"`{fname}` appears to contain {lang_name} source code, but the command invokes the Python interpreter. "
+            f"Python cannot parse {lang_name} constructs such as {constructs_str}."
+        )
+        summary = f"SyntaxError in {fname}: source appears to contain {lang_name} code rather than Python."
+        steps = [
+            f"If the intention is to execute {lang_name}, save the source as `{target_name}`, compile it using {compiler}, and run the resulting executable.",
+            "If the intention is to run Python, rewrite the source using valid Python syntax.",
+        ]
+        evidence = [
+            f"Observed error: {error_type}: {error_message}",
+        ]
+        if loc_str:
+            evidence.append(f"Failing location: {loc_str.strip()}")
+        if code_line:
+            evidence.append(f"Failing code line: {code_line}")
+        evidence.append(f"Detected {lang_name} indicators: {', '.join(c_indicators)}")
+
+        return RefinedDiagnosis(
+            is_refined=True,
+            summary=summary,
+            likely_cause=likely_cause,
+            suggested_fix="; ".join(steps),
+            suggested_steps=steps,
+            hypotheses=[
+                f"Source file language mismatch: {lang_name} source executed using Python interpreter",
+                f"File was saved with .py extension instead of .{ext}",
+            ],
+            evidence=evidence,
+            confidence=0.98,
+        )
+
+    # -------------------------------------------------------------------------
+    # 2. Java Detection
+    # -------------------------------------------------------------------------
+    java_indicators: List[str] = []
+    class_match = re.search(r"\b(?:public\s+)?class\s+([A-Za-z0-9_]+)\s*\{?", code_body)
+    class_name = class_match.group(1) if class_match else None
+
+    # Category A: Main entry
+    if re.search(r"\bpublic\s+static\s+void\s+main\s*\(\s*String\s*(?:\[\s*\]|\.\.\.)\s*[a-zA-Z0-9_]+\s*\)", code_body):
+        java_indicators.append("`public static void main`")
+
+    # Category B: Class declaration
+    if class_name:
+        java_indicators.append("`public class`" if "public class" in code_body else "`class`")
+
+    # Category C: Imports / packages
+    if re.search(r"^\s*import\s+java\.[a-zA-Z0-9_.*]+\s*;", source_text, re.MULTILINE):
+        java_indicators.append("`import java.*`")
+    elif re.search(r"^\s*package\s+[a-zA-Z0-9_.]+\s*;", source_text, re.MULTILINE):
+        java_indicators.append("`package`")
+
+    # Category D: System.out.println
+    if re.search(r"\bSystem\.(?:out|err)\.(?:println|print|printf)\s*\(", code_body):
+        java_indicators.append("`System.out.println`")
+
+    if len(java_indicators) >= 2:
+        target_name = f"{class_name or stem}.java"
+        constructs_str = " and ".join(java_indicators[:2])
+        likely_cause = (
+            f"`{fname}` appears to contain Java source code, but the command invokes the Python interpreter. "
+            f"Python cannot parse Java constructs such as {constructs_str}."
+        )
+        summary = f"SyntaxError in {fname}: source appears to contain Java code rather than Python."
+        steps = [
+            f"If the intention is to execute Java, save the source as `{target_name}`, compile and run it using an installed Java Development Kit (e.g. `javac {target_name}` and `java {class_name or stem}`).",
+            "If the intention is to run Python, rewrite the source using valid Python syntax.",
+        ]
+        evidence = [
+            f"Observed error: {error_type}: {error_message}",
+        ]
+        if loc_str:
+            evidence.append(f"Failing location: {loc_str.strip()}")
+        if code_line:
+            evidence.append(f"Failing code line: {code_line}")
+        evidence.append(f"Detected Java indicators: {', '.join(java_indicators)}")
+
+        return RefinedDiagnosis(
+            is_refined=True,
+            summary=summary,
+            likely_cause=likely_cause,
+            suggested_fix="; ".join(steps),
+            suggested_steps=steps,
+            hypotheses=[
+                "Source file language mismatch: Java source executed using Python interpreter",
+                "File was saved with .py extension instead of .java",
+            ],
+            evidence=evidence,
+            confidence=0.98,
+        )
+
+    # -------------------------------------------------------------------------
+    # 3. Go Detection
+    # -------------------------------------------------------------------------
+    go_indicators: List[str] = []
+
+    # Category A: Package main
+    if re.search(r"^\s*package\s+main\b", source_text, re.MULTILINE):
+        go_indicators.append("`package main`")
+
+    # Category B: Func main
+    if re.search(r"\bfunc\s+main\s*\(\s*\)", code_body):
+        go_indicators.append("`func main()`")
+
+    # Category C: Go imports
+    if re.search(r'^\s*import\s+(?:\(\s*)?"(?:fmt|os|strings|net/http|io|math)"', source_text, re.MULTILINE):
+        go_indicators.append('`import "fmt"`')
+
+    # Category D: Go fmt I/O
+    if re.search(r"\bfmt\.(?:Println|Printf|Print|Sprintf)\s*\(", code_body):
+        go_indicators.append("`fmt.Println`")
+
+    if len(go_indicators) >= 2:
+        target_name = f"{stem}.go"
+        constructs_str = " and ".join(go_indicators[:2])
+        likely_cause = (
+            f"`{fname}` appears to contain Go source code, but the command invokes the Python interpreter. "
+            f"Python cannot parse Go constructs such as {constructs_str}."
+        )
+        summary = f"SyntaxError in {fname}: source appears to contain Go code rather than Python."
+        steps = [
+            f"If the intention is to execute Go, save the source as `{target_name}` and run or build it using an installed Go toolchain (e.g. `go run {target_name}` or `go build`).",
+            "If the intention is to run Python, rewrite the source using valid Python syntax.",
+        ]
+        evidence = [
+            f"Observed error: {error_type}: {error_message}",
+        ]
+        if loc_str:
+            evidence.append(f"Failing location: {loc_str.strip()}")
+        if code_line:
+            evidence.append(f"Failing code line: {code_line}")
+        evidence.append(f"Detected Go indicators: {', '.join(go_indicators)}")
+
+        return RefinedDiagnosis(
+            is_refined=True,
+            summary=summary,
+            likely_cause=likely_cause,
+            suggested_fix="; ".join(steps),
+            suggested_steps=steps,
+            hypotheses=[
+                "Source file language mismatch: Go source executed using Python interpreter",
+                "File was saved with .py extension instead of .go",
+            ],
+            evidence=evidence,
+            confidence=0.98,
+        )
+
     return None
 
 
@@ -235,6 +485,19 @@ def refine_root_cause_diagnosis(
 
     # 3. SyntaxError / IndentationError
     if "SyntaxError" in norm_type or "IndentationError" in norm_type:
+        # Check for conservative, source-aware language mismatch (e.g. C/C++, Java, Go executed with Python)
+        mismatch_diagnosis = _detect_language_mismatch(
+            source_snippet=source_snippet,
+            file_path=file_path,
+            error_type=norm_type,
+            error_message=norm_msg,
+            line=line,
+            code_line=code_line,
+            loc_str=loc_str,
+        )
+        if mismatch_diagnosis:
+            return mismatch_diagnosis
+
         likely_cause = (
             f"Invalid Python syntax near line {line or 'unknown'}{loc_str}: {norm_msg}."
         )

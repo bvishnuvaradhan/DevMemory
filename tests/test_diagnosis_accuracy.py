@@ -419,3 +419,260 @@ def test_persistence_and_retrieval_with_root_cause_refinement(acc_db):
     retrieved = get_latest_diagnosis(acc_db, incident_id)
     assert retrieved is not None
     assert retrieved.diagnosis_id == diag_resp.diagnosis_id
+
+
+# ==============================================================================
+# 5. Language Mismatch Detection & Actionable Diagnosis
+# ==============================================================================
+
+def test_language_mismatch_c_code_executed_as_python():
+    """Verify that C code executed with Python is recognized with exact probable cause and fixes."""
+    snippet = (
+        "       1 | #include<stdio.h>\n"
+        "  >    2 | int main(){\n"
+        "       3 |     printf(\"yuu\");\n"
+        "       4 | }"
+    )
+    refined = refine_root_cause_diagnosis(
+        error_type="SyntaxError",
+        error_message="invalid syntax",
+        source_snippet=snippet,
+        stack_trace="""  File "test_failure.py", line 2
+    int main(){
+        ^^^^
+SyntaxError: invalid syntax""",
+        file_path="test_failure.py",
+        line=2,
+    )
+
+    assert refined.is_refined is True
+    assert "test_failure.py" in refined.likely_cause
+    assert "appears to contain C source code" in refined.likely_cause
+    assert "invokes the Python interpreter" in refined.likely_cause
+    assert "Python cannot parse C constructs such as `#include` and `int main()`" in refined.likely_cause
+    assert len(refined.suggested_steps) == 2
+    assert "test_failure.c" in refined.suggested_steps[0]
+    assert "installed C compiler such as GCC or Clang" in refined.suggested_steps[0]
+    assert "valid Python syntax" in refined.suggested_steps[1]
+    # Check that it doesn't make unsupported installation claims
+    assert "GCC is installed" not in refined.suggested_fix
+    assert "Clang is installed" not in refined.suggested_fix
+
+
+def test_language_mismatch_cpp_code_executed_as_python():
+    """Verify that C++ code executed with Python is recognized with C++ compiler guidance."""
+    snippet = (
+        "       1 | #include <iostream>\n"
+        "  >    2 | int main() {\n"
+        "       3 |     std::cout << \"hello\" << std::endl;\n"
+        "       4 |     return 0;\n"
+        "       5 | }"
+    )
+    refined = refine_root_cause_diagnosis(
+        error_type="SyntaxError",
+        error_message="invalid syntax",
+        source_snippet=snippet,
+        stack_trace="""  File "app.py", line 2
+    int main() {
+        ^
+SyntaxError: invalid syntax""",
+        file_path="app.py",
+        line=2,
+    )
+
+    assert refined.is_refined is True
+    assert "app.py" in refined.likely_cause
+    assert "appears to contain C++ source code" in refined.likely_cause
+    assert "app.cpp" in refined.suggested_steps[0]
+    assert "installed C++ compiler such as G++ or Clang++" in refined.suggested_steps[0]
+    assert "valid Python syntax" in refined.suggested_steps[1]
+
+
+def test_language_mismatch_java_code_executed_as_python():
+    """Verify that Java code executed with Python is recognized with JDK guidance."""
+    snippet = (
+        "  >    1 | public class DataService {\n"
+        "       2 |     public static void main(String[] args) {\n"
+        "       3 |         System.out.println(\"Java in Python\");\n"
+        "       4 |     }\n"
+        "       5 | }"
+    )
+    refined = refine_root_cause_diagnosis(
+        error_type="SyntaxError",
+        error_message="invalid syntax",
+        source_snippet=snippet,
+        stack_trace="""  File "DataService.py", line 1
+    public class DataService {
+           ^
+SyntaxError: invalid syntax""",
+        file_path="DataService.py",
+        line=1,
+    )
+
+    assert refined.is_refined is True
+    assert "DataService.py" in refined.likely_cause
+    assert "appears to contain Java source code" in refined.likely_cause
+    assert "DataService.java" in refined.suggested_steps[0]
+    assert "installed Java Development Kit" in refined.suggested_steps[0]
+    assert "valid Python syntax" in refined.suggested_steps[1]
+    assert "JDK is installed" not in refined.suggested_fix
+
+
+def test_language_mismatch_go_code_executed_as_python():
+    """Verify that Go code executed with Python is recognized with Go toolchain guidance."""
+    snippet = (
+        "  >    1 | package main\n"
+        "       2 | \n"
+        "       3 | import \"fmt\"\n"
+        "       4 | \n"
+        "       5 | func main() {\n"
+        "       6 |     fmt.Println(\"Hello from Go\")\n"
+        "       7 | }"
+    )
+    refined = refine_root_cause_diagnosis(
+        error_type="SyntaxError",
+        error_message="invalid syntax",
+        source_snippet=snippet,
+        stack_trace="""  File "server.py", line 1
+    package main
+            ^
+SyntaxError: invalid syntax""",
+        file_path="server.py",
+        line=1,
+    )
+
+    assert refined.is_refined is True
+    assert "server.py" in refined.likely_cause
+    assert "appears to contain Go source code" in refined.likely_cause
+    assert "server.go" in refined.suggested_steps[0]
+    assert "installed Go toolchain" in refined.suggested_steps[0]
+    assert "valid Python syntax" in refined.suggested_steps[1]
+    assert "Go is installed" not in refined.suggested_fix
+
+
+def test_genuine_python_syntax_error_not_misclassified():
+    """Verify that genuine Python syntax errors are never misclassified as language mismatches."""
+    # Subtest A: Missing colon after def
+    snippet_def = (
+        "  >    1 | def compute_total(items)\n"
+        "       2 |     return sum(items)"
+    )
+    refined_def = refine_root_cause_diagnosis(
+        error_type="SyntaxError",
+        error_message="expected ':'",
+        source_snippet=snippet_def,
+        stack_trace="""  File "compute.py", line 1
+    def compute_total(items)
+                            ^
+SyntaxError: expected ':'""",
+        file_path="compute.py",
+        line=1,
+    )
+    assert refined_def.is_refined is True
+    assert "language mismatch" not in refined_def.likely_cause.lower()
+    assert "appears to contain" not in refined_def.likely_cause
+    assert any("Block statements" in s and "terminate with a colon" in s for s in refined_def.suggested_steps)
+
+    # Subtest B: Lowercase boolean
+    snippet_bool = (
+        "  >    1 | return true"
+    )
+    refined_bool = refine_root_cause_diagnosis(
+        error_type="SyntaxError",
+        error_message="invalid syntax",
+        source_snippet=snippet_bool,
+        stack_trace="""  File "auth.py", line 1
+    return true
+           ^
+SyntaxError: invalid syntax""",
+        file_path="auth.py",
+        line=1,
+    )
+    assert refined_bool.is_refined is True
+    assert "language mismatch" not in refined_bool.likely_cause.lower()
+    assert any("capitalized: use 'True'" in s for s in refined_bool.suggested_steps)
+
+
+def test_python_with_comment_mentioning_other_language_not_misclassified():
+    """Verify that Python comments mentioning foreign language keywords do not trigger false positives."""
+    snippet_comment = (
+        "       1 | # Note: in C, #include <stdio.h> and int main() are required.\n"
+        "  >    2 | def run_process()\n"
+        "       3 |     pass"
+    )
+    refined = refine_root_cause_diagnosis(
+        error_type="SyntaxError",
+        error_message="invalid syntax",
+        source_snippet=snippet_comment,
+        stack_trace="""  File "runner.py", line 2
+    def run_process()
+                    ^
+SyntaxError: invalid syntax""",
+        file_path="runner.py",
+        line=2,
+    )
+    assert refined.is_refined is True
+    assert "appears to contain C source code" not in refined.likely_cause
+    assert any("Block statements" in s for s in refined.suggested_steps)
+
+
+def test_incomplete_or_ambiguous_source_context_handled_safely():
+    """Verify that incomplete or ambiguous source contexts fall back safely without error."""
+    # Case A: None source snippet and no file
+    refined_none = refine_root_cause_diagnosis(
+        error_type="SyntaxError",
+        error_message="invalid syntax",
+        source_snippet=None,
+        stack_trace="""  File "mystery.py", line 4
+    ???
+SyntaxError: invalid syntax""",
+        file_path="mystery.py",
+        line=4,
+    )
+    assert refined_none.is_refined is True
+    assert "Invalid Python syntax near line 4" in refined_none.likely_cause
+    assert any("complies with Python grammar" in s for s in refined_none.suggested_steps)
+
+    # Case B: Ambiguous single-token snippet
+    refined_token = refine_root_cause_diagnosis(
+        error_type="SyntaxError",
+        error_message="invalid syntax",
+        source_snippet="> 1 | x =",
+        stack_trace="""  File "token.py", line 1
+    x =
+      ^
+SyntaxError: invalid syntax""",
+        file_path="token.py",
+        line=1,
+    )
+    assert refined_token.is_refined is True
+    assert "Invalid Python syntax near line 1" in refined_token.likely_cause
+
+
+def test_cli_rendering_of_language_mismatch_diagnosis():
+    """Verify that CLI renders language mismatch diagnosis with all fields and options."""
+    diag = BackendDiagnosisResponse(
+        status="success",
+        event_id="evt_mismatch_001",
+        incident_id="inc_mismatch_001",
+        probable_cause="test_failure.py appears to contain C source code, but the command invokes the Python interpreter. Python cannot parse C constructs such as `#include` and `int main()`.",
+        suggested_steps=[
+            "If the intention is to execute C, save the source as `test_failure.c`, compile it using an installed C compiler such as GCC or Clang, and run the resulting executable.",
+            "If the intention is to run Python, rewrite the source using valid Python syntax.",
+        ],
+        source="ai_engine/groq-llama-3.3-70b",
+    )
+    ingestion = IngestionResult(
+        success=True,
+        is_offline=False,
+        incident_id="inc_mismatch_001",
+        diagnosis=diag,
+    )
+
+    out = _capture_render(ingestion)
+    assert "Incident ID:" in out
+    assert "inc_mismatch_001" in out
+    assert "Probable Cause: test_failure.py appears to contain C source code" in out
+    assert "Suggested Fix:" in out
+    assert "- If the intention is to execute C, save the source as `test_failure.c`" in out
+    assert "- If the intention is to run Python, rewrite the source using valid Python syntax." in out
