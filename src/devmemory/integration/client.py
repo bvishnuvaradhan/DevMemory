@@ -293,12 +293,14 @@ class DevMemoryClient:
         event_id: str,
         allow_cross_project: bool = True,
         force_recheck: bool = False,
+        fresh_analysis: bool = False,
     ) -> Optional[BackendDiagnosisResponse]:
         """Trigger AI diagnosis for an incident via POST /api/v1/incidents/{incident_id}/diagnose."""
         url = (
             f"{self.base_url}{INCIDENTS_ENDPOINT_PATH}/{incident_id}/diagnose"
             f"?allow_cross_project={'true' if allow_cross_project else 'false'}"
             f"&force_recheck={'true' if force_recheck else 'false'}"
+            f"&fresh_analysis={'true' if fresh_analysis else 'false'}"
         )
         headers = {
             "Accept": "application/json",
@@ -353,10 +355,12 @@ class DevMemoryClient:
                     hypotheses=hypotheses_list,
                     suggested_steps=suggested_steps,
                     similar_incidents=similar_matches,
-                    is_verified_fix=False,
+                    is_verified_fix=bool(data.get("is_verified_fix", False)),
                     source=source_val,
                     is_reused=is_reused,
                     is_fallback=is_fallback,
+                    llm_skipped=data.get("llm_skipped"),
+                    decision_reason=data.get("decision_reason"),
                     raw_response=data,
                 )
         except urllib.error.HTTPError as http_err:

@@ -21,7 +21,7 @@ from pymongo.database import Database
 
 import ai_engine.schemas as ai_schemas
 from ai_engine.diagnosis import diagnose_error
-from ai_engine.retrieval import AuthorizationContext, IncidentRepository
+from ai_engine.retrieval import AuthorizationContext, IncidentRepository, retrieve_memory
 from app.config import get_settings
 from app.schemas.diagnosis import (
     DiagnosisCreate,
@@ -30,6 +30,7 @@ from app.schemas.diagnosis import (
     MatchedMemoryRef,
 )
 from app.services import diagnosis_service
+from app.services.decision_gate import DecisionReason, evaluate_decision_gate
 from app.services.embedding_service import (
     ProductionMongoVectorSearchAdapter,
     get_active_embedding_provider,
@@ -43,8 +44,9 @@ logger = logging.getLogger(__name__)
 class MongoIncidentRepository:
     """Adapter implementing ai_engine.retrieval.IncidentRepository against MongoDB collections."""
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, current_incident_id: Optional[str] = None) -> None:
         self.db = db
+        self.current_incident_id = current_incident_id
 
     def _enrich_incident(self, doc: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize and enrich stored incident document for AI engine consumption."""
@@ -103,15 +105,21 @@ class MongoIncidentRepository:
 
     def get_project_incidents(self, project_id: str) -> List[Dict[str, Any]]:
         """Retrieve stored historical incidents for a specific project."""
-        cursor = self.db.incidents.find({"project_id": project_id}, {"_id": 0})
+        query: Dict[str, Any] = {"project_id": project_id}
+        if self.current_incident_id:
+            query["incident_id"] = {"$ne": self.current_incident_id}
+        cursor = self.db.incidents.find(query, {"_id": 0})
         return [self._enrich_incident(doc) for doc in cursor]
 
     def get_cross_project_incidents(self, requesting_project_id: str) -> List[Dict[str, Any]]:
         """Retrieve cross-project incident candidates strictly filtered by is_public=True."""
-        cursor = self.db.incidents.find(
-            {"project_id": {"$ne": requesting_project_id}, "is_public": True},
-            {"_id": 0},
-        )
+        query: Dict[str, Any] = {
+            "project_id": {"$ne": requesting_project_id},
+            "is_public": True,
+        }
+        if self.current_incident_id:
+            query["incident_id"] = {"$ne": self.current_incident_id}
+        cursor = self.db.incidents.find(query, {"_id": 0})
         return [self._enrich_incident(doc) for doc in cursor]
 
 
@@ -205,11 +213,32 @@ def map_ai_response_to_backend_diagnosis(
     incident_id: str,
     incident: Optional[Dict[str, Any]] = None,
     run: Optional[Dict[str, Any]] = None,
+    llm_skipped: Optional[bool] = None,
+    decision_reason: Optional[str] = None,
+    llm_client: Optional[Any] = None,
 ) -> DiagnosisCreate:
     """Map ai_engine DiagnosisResponse to backend's DiagnosisCreate persistence model with root-cause refinement."""
-    # Determine accurate source string
-    if ai_resp.uncertainty_description and "fallback" in ai_resp.uncertainty_description.lower():
+    is_verified = (ai_resp.fix_status == ai_schemas.FixStatus.VERIFIED)
+
+    # Determine accurate source string reflecting decision gate / provider provenance
+    if decision_reason in (
+        DecisionReason.EXACT_VERIFIED_FIX.value,
+        DecisionReason.SIMILAR_VERIFIED_RESOLUTION.value,
+    ):
+        source = "memory/verified-fix"
+    elif decision_reason == DecisionReason.GENERAL_KNOWLEDGE_MATCH.value:
+        source = "knowledge_base/curated"
+    elif decision_reason == DecisionReason.REDACTION_SECURITY_FAILURE.value:
+        source = "security/blocked-policy"
+    elif decision_reason == DecisionReason.EXTERNAL_INFERENCE_DISABLED.value:
         source = "fallback/local-knowledge"
+    elif ai_resp.uncertainty_description and "fallback" in ai_resp.uncertainty_description.lower():
+        source = "fallback/local-knowledge"
+    elif llm_client is not None and (
+        "mock" in type(llm_client).__name__.lower()
+        or "mock" in type(getattr(llm_client, "underlying_client", None)).__name__.lower()
+    ):
+        source = "ai_engine/mock"
     elif os.getenv("GROQ_API_KEY") and not (
         os.getenv("DEV_MEMORY_DISABLE_EXTERNAL_AI", "").lower() in ("1", "true", "yes")
         or os.getenv("DEVMEMORY_OFFLINE_MODE", "").lower() in ("1", "true", "yes")
@@ -229,8 +258,8 @@ def map_ai_response_to_backend_diagnosis(
     evidence_list = ai_resp.evidence[:100]
     hypotheses_causes = ai_resp.hypotheses
 
-    # Apply precision root-cause refinement when incident context is present
-    if incident:
+    # Apply precision root-cause refinement only when incident context is present and NOT an authorized verified fix
+    if incident and not is_verified:
         refinement = refine_root_cause_diagnosis(
             error_type=incident.get("error_type") or "",
             error_message=incident.get("error_message") or "",
@@ -283,6 +312,9 @@ def map_ai_response_to_backend_diagnosis(
         evidence=evidence_list,
         confidence=confidence,
         source=source,
+        is_verified_fix=is_verified,
+        llm_skipped=llm_skipped,
+        decision_reason=decision_reason,
     )
 
 
@@ -336,17 +368,19 @@ def generate_and_store_incident_diagnosis(
     disable_external_inference: Optional[bool] = None,
     threshold: float = 0.60,
     force_recheck: bool = False,
+    fresh_analysis: bool = False,
     lease_timeout_seconds: float = DEFAULT_DIAGNOSIS_LEASE_SECONDS,
     llm_client: Optional[Any] = None,
 ) -> Tuple[BackendDiagnosisResponseModel, bool]:
     """Execute AI diagnosis for an incident and persist the structured diagnosis in MongoDB.
 
     Guarantees:
-    1. Idempotency: Returns existing latest diagnosis if already diagnosed and force_recheck is False.
+    1. Idempotency: Returns existing latest diagnosis if already diagnosed and force_recheck and fresh_analysis are False.
     2. Atomic Ownership: Acquires recoverable diagnosis lease; prevents concurrent redundant diagnoses.
     3. Stale Worker Protection: Verifies ownership before updating status; stale workers cannot overwrite active state.
     4. Self-Healing Reconciliation: Recovers from crashes between diagnosis insertion and incident status update.
     5. Clean Ownership Rollback: Releases lease on error only if ownership token matches.
+    6. LLM Decision Gate: Bypasses external LLM invocation when reliable verified fixes or curated general knowledge exist.
     """
     incident = db.incidents.find_one({"incident_id": incident_id})
     if not incident:
@@ -357,8 +391,8 @@ def generate_and_store_incident_diagnosis(
 
     now = datetime.now(timezone.utc)
 
-    # 1. Idempotency and Self-Healing Pre-Check (when NOT force_recheck)
-    if not force_recheck:
+    # 1. Idempotency and Self-Healing Pre-Check (when NOT force_recheck and NOT fresh_analysis)
+    if not force_recheck and not fresh_analysis:
         # If already marked diagnosed, short-circuit immediately without invoking LLM
         if incident.get("diagnosis_status") == "diagnosed":
             existing = diagnosis_service.get_latest_diagnosis(db, incident_id)
@@ -399,8 +433,8 @@ def generate_and_store_incident_diagnosis(
         expires_at = _normalize_utc(incident.get("diagnosis_lease_expires_at"))
         if expires_at and expires_at >= now:
             # Active lease in progress by another worker
-            # If force_recheck and existing diagnosis exists, return it, else 409
-            existing = diagnosis_service.get_latest_diagnosis(db, incident_id) if force_recheck else None
+            # If (force_recheck or fresh_analysis) and existing diagnosis exists, return it, else 409
+            existing = diagnosis_service.get_latest_diagnosis(db, incident_id) if (force_recheck or fresh_analysis) else None
             if existing:
                 existing.idempotent = True
                 return existing, False
@@ -425,7 +459,7 @@ def generate_and_store_incident_diagnosis(
             },
         ],
     }
-    if force_recheck:
+    if force_recheck or fresh_analysis:
         lease_query["$or"].append({"diagnosis_status": "diagnosed"})
 
     lease_update = {
@@ -445,7 +479,7 @@ def generate_and_store_incident_diagnosis(
     if acquired_inc is None:
         # Failed to acquire lease (race condition with concurrent request)
         current_inc = db.incidents.find_one({"incident_id": incident_id})
-        if current_inc and current_inc.get("diagnosis_status") == "diagnosed" and not force_recheck:
+        if current_inc and current_inc.get("diagnosis_status") == "diagnosed" and not force_recheck and not fresh_analysis:
             existing = diagnosis_service.get_latest_diagnosis(db, incident_id)
             if existing:
                 existing.idempotent = True
@@ -470,7 +504,7 @@ def generate_and_store_incident_diagnosis(
             has_cross_project_read=has_cross_project_read,
         )
 
-        repo = MongoIncidentRepository(db)
+        repo = MongoIncidentRepository(db, current_incident_id=incident_id)
 
         # Wire production vector adapter and active embedding provider
         settings = get_settings()
@@ -496,16 +530,57 @@ def generate_and_store_incident_diagnosis(
                 underlying_client=llm_client,
             )
 
-        # Run AI diagnosis orchestrator with hybrid vector retrieval
-        ai_resp = diagnose_error(
+        # Step 1: Pre-retrieve memory using three-level retrieval (Lexical + Exact + Vector)
+        retrieval_result = retrieve_memory(
             request=req,
             auth_context=auth,
             repository=repo,
             threshold=threshold,
-            disable_external_inference=disable_external_inference,
             vector_adapter=vector_adapter,
             embedding_provider=active_embedding_prov,
-            llm_client=audited_client,
+        )
+
+        # Step 2: Evaluate Decision Gate before any external LLM invocation
+        is_offline = bool(disable_external_inference) or (
+            os.getenv("DEV_MEMORY_DISABLE_EXTERNAL_AI", "").lower() in ("1", "true", "yes")
+            or os.getenv("DEVMEMORY_OFFLINE_MODE", "").lower() in ("1", "true", "yes")
+            or os.getenv("AI_PRIVACY_OFFLINE_ONLY", "").lower() in ("1", "true", "yes")
+            or (settings.DEV_MEMORY_DISABLE_EXTERNAL_AI or "").lower() in ("1", "true", "yes")
+        )
+
+        gate_eval = evaluate_decision_gate(
+            request=req,
+            auth_context=auth,
+            retrieval_result=retrieval_result,
+            fresh_analysis=fresh_analysis,
+            disable_external_inference=is_offline,
+        )
+
+        if gate_eval.should_call_llm:
+            # Insufficient evidence, ambiguous error, or explicit fresh-analysis -> Dispatch LLM
+            ai_resp = diagnose_error(
+                request=req,
+                auth_context=auth,
+                repository=repo,
+                threshold=threshold,
+                disable_external_inference=disable_external_inference,
+                vector_adapter=vector_adapter,
+                embedding_provider=active_embedding_prov,
+                llm_client=audited_client,
+            )
+            llm_skipped = False
+        else:
+            # Verified fix, curated knowledge, policy block, or offline -> Zero LLM calls
+            ai_resp = gate_eval.synthesized_response
+            llm_skipped = True
+
+        decision_reason = gate_eval.decision_reason
+        logger.info(
+            "Incident %s diagnosis decision gate: should_call_llm=%s, llm_skipped=%s, reason=%s",
+            incident_id,
+            gate_eval.should_call_llm,
+            llm_skipped,
+            decision_reason,
         )
 
         # Map AI response to backend diagnosis schema
@@ -514,6 +589,9 @@ def generate_and_store_incident_diagnosis(
             incident_id=incident_id,
             incident=acquired_inc,
             run=run,
+            llm_skipped=llm_skipped,
+            decision_reason=decision_reason,
+            llm_client=audited_client,
         )
 
         # Stale Worker Protection: Verify lease token is still active before writing
@@ -543,6 +621,21 @@ def generate_and_store_incident_diagnosis(
                 )
             except Exception as audit_link_exc:
                 logger.debug("Failed to link diagnosis_id to llm_request_audits: %s", audit_link_exc)
+
+        # Record decision gate outcome on the incident document for traceability
+        try:
+            db.incidents.update_one(
+                {"incident_id": incident_id},
+                {
+                    "$set": {
+                        "llm_skipped": llm_skipped,
+                        "decision_reason": decision_reason,
+                        "is_verified_fix": backend_payload.is_verified_fix,
+                    }
+                },
+            )
+        except Exception as inc_audit_exc:
+            logger.debug("Failed to record decision gate outcome on incident: %s", inc_audit_exc)
 
         return diagnosis_resp, is_new
 

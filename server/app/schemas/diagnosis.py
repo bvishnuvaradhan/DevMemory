@@ -66,6 +66,19 @@ class DiagnosisCreate(BaseModel):
         max_length=120,
         description="Originating AI model or diagnostic system (e.g. 'groq/llama-3.3-70b')",
     )
+    is_verified_fix: bool = Field(
+        default=False,
+        description="Whether the suggested fix is an authorized verified fix from historical precedent",
+    )
+    llm_skipped: Optional[bool] = Field(
+        default=None,
+        description="Whether LLM invocation was bypassed by the decision gate",
+    )
+    decision_reason: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+        description="Reason for decision gate determination",
+    )
 
 
 class DiagnosisResponse(BaseModel):
@@ -82,5 +95,8 @@ class DiagnosisResponse(BaseModel):
     evidence: List[str] = Field(default_factory=list)
     confidence: Optional[float] = None
     source: Optional[str] = None
+    is_verified_fix: bool = False
+    llm_skipped: Optional[bool] = None
+    decision_reason: Optional[str] = None
     created_at: datetime
     idempotent: bool = False

@@ -372,7 +372,10 @@ def _render_backend_report(ingestion: IngestionResult) -> None:
         console.print(f"  [bold cyan]Probable Cause:[/] {diag.probable_cause}")
 
     if diag.suggested_steps:
-        console.print("  [bold cyan]Suggested Fix:[/]")
+        if diag.is_verified_fix:
+            console.print("  [bold green]Verified Fix:[/]  [dim](Proven resolution from DevMemory history)[/]")
+        else:
+            console.print("  [bold cyan]Suggested Fix:[/]")
         for step in diag.suggested_steps:
             console.print(f"    - {step}")
 

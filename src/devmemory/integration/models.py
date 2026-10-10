@@ -196,3 +196,5 @@ class BackendDiagnosisResponse:
     is_reused: bool = False
     is_fallback: bool = False
     error_message: Optional[str] = None
+    llm_skipped: Optional[bool] = None
+    decision_reason: Optional[str] = None

@@ -62,6 +62,9 @@ def create_diagnosis(
         "evidence": payload.evidence,
         "confidence": payload.confidence,
         "source": payload.source,
+        "is_verified_fix": payload.is_verified_fix,
+        "llm_skipped": payload.llm_skipped,
+        "decision_reason": payload.decision_reason,
         "created_at": now,
     }
 

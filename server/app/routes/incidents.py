@@ -202,6 +202,7 @@ async def diagnose_incident_endpoint(
     has_cross_project_read: bool = Query(default=False, description="Server permission for cross-project read"),
     disable_external_inference: Optional[bool] = Query(default=None, description="Force offline inference"),
     force_recheck: bool = Query(default=False, description="Force a new diagnosis even if one already exists"),
+    fresh_analysis: bool = Query(default=False, description="Bypass decision gate memory reuse and force fresh LLM analysis"),
     db: Database = Depends(get_database),
 ):
     diagnosis, is_new = ai_service.generate_and_store_incident_diagnosis(
@@ -211,6 +212,7 @@ async def diagnose_incident_endpoint(
         has_cross_project_read=has_cross_project_read,
         disable_external_inference=disable_external_inference,
         force_recheck=force_recheck,
+        fresh_analysis=fresh_analysis,
     )
     response.status_code = status.HTTP_201_CREATED if is_new else status.HTTP_200_OK
     return ResponseEnvelope[DiagnosisResponse](success=True, data=diagnosis, error=None)
