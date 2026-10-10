@@ -180,9 +180,9 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
             if (e.target === e.currentTarget) setIsMobileMenuOpen(false);
           }}
         >
-          <div className="w-full max-h-[85vh] overflow-y-auto bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 p-4 shadow-2xl space-y-5 animate-in slide-in-from-top-2 duration-150">
-            {/* Scope Selector on Mobile */}
-            <div>
+          <div className="w-full max-h-[85vh] flex flex-col overflow-hidden bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 p-4 shadow-2xl space-y-4 animate-in slide-in-from-top-2 duration-150">
+            {/* Scope Selector on Mobile: Stationary */}
+            <div className="shrink-0">
               <label htmlFor="mobile-project-select" className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1.5 font-mono">
                 Active Project Scope
               </label>
@@ -205,8 +205,8 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
               </div>
             </div>
 
-            {/* Platform Navigation */}
-            <div>
+            {/* Platform Navigation: Stationary */}
+            <div className="shrink-0">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1.5 font-mono">
                 Platform Features
               </span>
@@ -238,12 +238,15 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
               </nav>
             </div>
 
-            {/* Project Workspaces list */}
-            <div>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1.5 font-mono">
+            {/* Project Workspaces list: Stationary heading + Scrollable list */}
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1.5 font-mono">
                 Workspaces ({projects.length})
               </span>
-              <nav aria-label="Mobile workspaces navigation" className="space-y-1">
+              <nav
+                aria-label="Mobile workspaces navigation"
+                className="flex-1 min-h-0 max-h-48 overflow-y-auto overflow-x-hidden space-y-1 pr-1.5"
+              >
                 {projects.map((p) => (
                   <NavLink
                     key={p.id}
@@ -270,8 +273,8 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
               </nav>
             </div>
 
-            {/* Theme Toggle Row on Mobile */}
-            <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between">
+            {/* Theme Toggle Row on Mobile: Stationary */}
+            <div className="shrink-0 pt-2 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between">
               <span className="text-xs font-mono text-slate-600 dark:text-slate-400 font-medium">
                 Interface Theme:
               </span>
