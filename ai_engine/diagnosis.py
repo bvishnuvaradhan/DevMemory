@@ -115,12 +115,14 @@ def diagnose_error(
     llm_client: Optional[LLMClient] = None,
     threshold: float = 0.60,
     disable_external_inference: Optional[bool] = None,
+    vector_adapter: Optional[Any] = None,
+    embedding_provider: Optional[Any] = None,
 ) -> DiagnosisResponse:
     """Diagnose a developer error using 3-level memory retrieval and structured LLM inference.
     
     Flow:
     1. Check privacy configuration: if offline opt-out is enabled, synthesize local fallback.
-    2. Query 3-level memory (General Knowledge, Project Memory, Cross-Project Precedents).
+    2. Query 3-level memory (General Knowledge, Project Memory, Cross-Project Precedents) with hybrid vector support.
     3. Build evidence-grounded, privacy-sanitized prompt.
     4. Validate outbound prompt against privacy safety policies.
     5. Call LLM provider with fallback handling on timeout, failure, or policy violations.
@@ -134,12 +136,14 @@ def diagnose_error(
         or os.getenv("AI_PRIVACY_OFFLINE_ONLY", "").lower() in ("1", "true", "yes")
     )
 
-    # 2. Memory retrieval
+    # 2. Memory retrieval (Exact + Lexical + Vector Hybrid)
     retrieval_result = retrieve_memory(
         request=request,
         auth_context=auth_context,
         repository=repository,
         threshold=threshold,
+        vector_adapter=vector_adapter,
+        embedding_provider=embedding_provider,
     )
 
     # If external inference is disabled by configuration, return deterministic local fallback immediately

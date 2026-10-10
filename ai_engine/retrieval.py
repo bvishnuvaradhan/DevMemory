@@ -264,18 +264,33 @@ def retrieve_memory(
     repository: Optional[IncidentRepository] = None,
     kb_items: Optional[List[KnowledgeBaseItem]] = None,
     threshold: float = 0.60,
+    vector_adapter: Optional[Any] = None,
+    embedding_provider: Optional[Any] = None,
 ) -> RetrievalResult:
-    """Orchestrate three-level memory retrieval.
+    """Orchestrate three-level memory retrieval with hybrid exact, lexical, and vector support.
     
     Guarantees:
     - Level 1 operates offline without database or network.
     - Level 2 restricts results strictly to request.project_id.
     - Level 3 strictly requires auth_context.has_cross_project_read and public sharing.
-    - Fault isolation: failure in one level does not crash remaining levels.
+    - Fault isolation: failure in one level or vector service does not crash remaining levels.
+    - Hybrid fusion: exact signatures, lexical tokens, and vector semantics combined with contradiction guards.
     """
     general_matches: List[IncidentMatch] = []
     project_matches: List[IncidentMatch] = []
     cross_project_matches: List[IncidentMatch] = []
+
+    # Pre-compute query vector if vector adapter is provided
+    query_vector: Optional[List[float]] = None
+    if vector_adapter:
+        try:
+            from ai_engine.vector import DeterministicEmbeddingProvider
+
+            emb_prov = embedding_provider or DeterministicEmbeddingProvider()
+            q_text = f"{request.error_message} {request.stack_trace or ''} {request.command}"
+            query_vector = emb_prov.get_embedding(q_text)
+        except Exception as exc:
+            logger.warning("Query vector embedding generation failed: %s", exc)
 
     # 1. Level 1: General Knowledge
     try:
@@ -284,21 +299,57 @@ def retrieve_memory(
     except Exception as exc:
         logger.warning("Level 1 general knowledge retrieval failed: %s", exc)
 
-    # 2. Level 2: Project Memory
-    if repository and auth_context.has_project_access and (auth_context.project_id == request.project_id):
+    # 2. Level 2: Project Memory (Exact + Lexical + Vector Hybrid)
+    if (repository or vector_adapter) and auth_context.has_project_access and (auth_context.project_id == request.project_id):
         try:
-            cand_list = repository.get_project_incidents(request.project_id)
-            project_matches = _match_project_memory(request, cand_list, threshold)
+            cand_list = repository.get_project_incidents(request.project_id) if repository else []
+            lexical_matches = _match_project_memory(request, cand_list, threshold)
+
+            if vector_adapter and query_vector:
+                from ai_engine.hybrid import fuse_candidates
+
+                vec_results = vector_adapter.search_project_vectors(
+                    query_vector=query_vector,
+                    project_id=request.project_id,
+                    min_score=threshold * 0.75,
+                )
+                project_matches = fuse_candidates(
+                    query_request=request,
+                    lexical_matches=lexical_matches,
+                    vector_matches=vec_results,
+                    match_source=MatchSource.PROJECT_MEMORY,
+                    threshold=threshold,
+                )
+            else:
+                project_matches = lexical_matches
         except Exception as exc:
             logger.warning("Level 2 project memory retrieval failed: %s", exc)
 
-    # 3. Level 3: Cross-Project Memory
-    if repository:
+    # 3. Level 3: Cross-Project Memory (Exact + Lexical + Vector Hybrid)
+    if (repository or vector_adapter) and auth_context.has_cross_project_read:
         try:
-            cand_cross = repository.get_cross_project_incidents(request.project_id)
-            cross_project_matches = _match_cross_project_memory(
+            cand_cross = repository.get_cross_project_incidents(request.project_id) if repository else []
+            lexical_cross = _match_cross_project_memory(
                 request, cand_cross, threshold, auth_context
             )
+
+            if vector_adapter and query_vector:
+                from ai_engine.hybrid import fuse_candidates
+
+                vec_cross = vector_adapter.search_cross_project_vectors(
+                    query_vector=query_vector,
+                    requesting_project_id=request.project_id,
+                    min_score=threshold * 0.75,
+                )
+                cross_project_matches = fuse_candidates(
+                    query_request=request,
+                    lexical_matches=lexical_cross,
+                    vector_matches=vec_cross,
+                    match_source=MatchSource.CROSS_PROJECT,
+                    threshold=threshold,
+                )
+            else:
+                cross_project_matches = lexical_cross
         except Exception as exc:
             logger.warning("Level 3 cross-project memory retrieval failed: %s", exc)
 
