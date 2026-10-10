@@ -159,3 +159,10 @@ def get_settings() -> Settings:
 def clear_settings_cache() -> None:
     """Clear cached settings instance so next get_settings() reloads."""
     get_settings.cache_clear()
+
+
+def __getattr__(name: str) -> Any:
+    """Support dynamic module-level attribute access (e.g. from app.config import settings)."""
+    if name == "settings":
+        return get_settings()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
