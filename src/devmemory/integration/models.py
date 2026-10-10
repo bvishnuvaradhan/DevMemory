@@ -171,7 +171,7 @@ class SimilarIncidentMatch:
 @dataclass
 class BackendDiagnosisResponse:
     """Structured diagnosis returned or fetched from the backend."""
-    status: str  # "success", "error", "no_diagnosis"
+    status: str  # "success", "error", "no_diagnosis", "reused", "fallback", "unavailable"
     event_id: str
     incident_id: Optional[str] = None
     probable_cause: Optional[str] = None
@@ -181,3 +181,7 @@ class BackendDiagnosisResponse:
     knowledge_base_match: Optional[str] = None
     is_verified_fix: bool = False
     raw_response: Optional[Dict[str, Any]] = None
+    source: Optional[str] = None
+    is_reused: bool = False
+    is_fallback: bool = False
+    error_message: Optional[str] = None

@@ -30,6 +30,7 @@ from app.schemas.diagnosis import (
     MatchedMemoryRef,
 )
 from app.services import diagnosis_service
+from app.services.root_cause_analyzer import refine_root_cause_diagnosis
 
 logger = logging.getLogger(__name__)
 
@@ -186,15 +187,66 @@ def build_ai_diagnosis_payloads(
 def map_ai_response_to_backend_diagnosis(
     ai_resp: ai_schemas.DiagnosisResponse,
     incident_id: str,
+    incident: Optional[Dict[str, Any]] = None,
+    run: Optional[Dict[str, Any]] = None,
 ) -> DiagnosisCreate:
-    """Map ai_engine DiagnosisResponse to backend's DiagnosisCreate persistence model."""
+    """Map ai_engine DiagnosisResponse to backend's DiagnosisCreate persistence model with root-cause refinement."""
+    # Determine accurate source string
+    if ai_resp.uncertainty_description and "fallback" in ai_resp.uncertainty_description.lower():
+        source = "fallback/local-knowledge"
+    elif os.getenv("GROQ_API_KEY") and not (
+        os.getenv("DEV_MEMORY_DISABLE_EXTERNAL_AI", "").lower() in ("1", "true", "yes")
+        or os.getenv("DEVMEMORY_OFFLINE_MODE", "").lower() in ("1", "true", "yes")
+        or os.getenv("AI_PRIVACY_OFFLINE_ONLY", "").lower() in ("1", "true", "yes")
+    ):
+        source = "ai_engine/groq-llama-3.3-70b"
+    else:
+        source = "ai_engine/mock"
+
+    # Default mapping from ai_resp
+    summary = ai_resp.summary[:2000]
+    likely_cause = getattr(ai_resp, "likely_cause", None)
+    if likely_cause:
+        likely_cause = str(likely_cause)[:3000]
+    suggested_fix = "; ".join(ai_resp.recommended_steps) if ai_resp.recommended_steps else None
+    confidence = ai_resp.confidence
+    evidence_list = ai_resp.evidence[:100]
+    hypotheses_causes = ai_resp.hypotheses
+
+    # Apply precision root-cause refinement when incident context is present
+    if incident:
+        refinement = refine_root_cause_diagnosis(
+            error_type=incident.get("error_type") or "",
+            error_message=incident.get("error_message") or "",
+            source_snippet=incident.get("source_snippet"),
+            stack_trace=incident.get("stack_trace") or (run.get("stderr") if run else ""),
+            file_path=incident.get("file_path"),
+            line=incident.get("line"),
+            column=incident.get("column"),
+            ai_summary=ai_resp.summary,
+            ai_likely_cause=getattr(ai_resp, "likely_cause", None),
+            ai_recommended_steps=ai_resp.recommended_steps,
+            ai_hypotheses=ai_resp.hypotheses,
+            ai_evidence=ai_resp.evidence,
+        )
+        if refinement.is_refined:
+            summary = refinement.summary[:2000]
+            likely_cause = refinement.likely_cause[:3000]
+            suggested_fix = refinement.suggested_fix[:5000]
+            confidence = refinement.confidence
+            evidence_list = refinement.evidence[:100]
+            hypotheses_causes = refinement.hypotheses
+
+    if suggested_fix and len(suggested_fix) > 5000:
+        suggested_fix = suggested_fix[:5000]
+
     hypotheses = [
         HypothesisItem(
             cause=h[:1000],
             is_observed=False,
             details=None,
         )
-        for h in ai_resp.hypotheses
+        for h in hypotheses_causes
     ]
 
     matched_memory = [
@@ -206,18 +258,15 @@ def map_ai_response_to_backend_diagnosis(
         for m in ai_resp.related_incidents
     ]
 
-    suggested_fix = "; ".join(ai_resp.recommended_steps) if ai_resp.recommended_steps else None
-    if suggested_fix and len(suggested_fix) > 5000:
-        suggested_fix = suggested_fix[:5000]
-
     return DiagnosisCreate(
-        summary=ai_resp.summary[:2000],
+        summary=summary,
+        likely_cause=likely_cause,
         hypotheses=hypotheses,
         suggested_fix=suggested_fix,
         matched_memory=matched_memory,
-        evidence=ai_resp.evidence[:100],
-        confidence=ai_resp.confidence,
-        source="ai_engine/groq-llama-3.3-70b",
+        evidence=evidence_list,
+        confidence=confidence,
+        source=source,
     )
 
 
@@ -416,7 +465,12 @@ def generate_and_store_incident_diagnosis(
         )
 
         # Map AI response to backend diagnosis schema
-        backend_payload = map_ai_response_to_backend_diagnosis(ai_resp, incident_id)
+        backend_payload = map_ai_response_to_backend_diagnosis(
+            ai_resp=ai_resp,
+            incident_id=incident_id,
+            incident=acquired_inc,
+            run=run,
+        )
 
         # Stale Worker Protection: Verify lease token is still active before writing
         verify_inc = db.incidents.find_one({"incident_id": incident_id})

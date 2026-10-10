@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -14,6 +16,7 @@ from devmemory.integration.models import (
 )
 
 DEFAULT_TIMEOUT_SECONDS = 2.0
+DEFAULT_DIAGNOSIS_TIMEOUT_SECONDS = float(os.getenv("DEVMEMORY_DIAGNOSIS_TIMEOUT", "30.0"))
 DEFAULT_MAX_RETRIES = 1
 DEFAULT_BACKOFF_SECONDS = 0.2
 RUNS_ENDPOINT_PATH = "/api/v1/runs"
@@ -53,11 +56,13 @@ class DevMemoryClient:
         self,
         base_url: str = "http://localhost:8000",
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        diagnosis_timeout: float = DEFAULT_DIAGNOSIS_TIMEOUT_SECONDS,
         max_retries: int = DEFAULT_MAX_RETRIES,
         backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.diagnosis_timeout = diagnosis_timeout
         self.max_retries = max_retries
         self.backoff_seconds = backoff_seconds
 
@@ -178,10 +183,13 @@ class DevMemoryClient:
 
                     diag = None
                     if incident_id:
-                        # Attempt active AI diagnosis first, falling back to history
+                        # Attempt active AI diagnosis first
                         diag = self.diagnose_incident(incident_id, payload.event_id)
-                        if not diag:
-                            diag = self._fetch_incident_history(incident_id, payload.event_id)
+                        # Enrich memory matches if diagnosis was unavailable
+                        if diag and diag.status == "unavailable" and not diag.similar_incidents:
+                            hist = self._fetch_incident_history(incident_id, payload.event_id)
+                            if hist and hist.similar_incidents:
+                                diag.similar_incidents = hist.similar_incidents
 
                     return IngestionResult(
                         success=True,
@@ -276,23 +284,21 @@ class DevMemoryClient:
                     raw_response=data,
                 )
         except Exception:
-            # History fetch is optional enhancement; fallback cleanly
-            return BackendDiagnosisResponse(
-                status="success",
-                event_id=event_id,
-                incident_id=incident_id,
-            )
+            # History fetch is optional enhancement; return None if unavailable
+            return None
 
     def diagnose_incident(
         self,
         incident_id: str,
         event_id: str,
         allow_cross_project: bool = True,
+        force_recheck: bool = False,
     ) -> Optional[BackendDiagnosisResponse]:
         """Trigger AI diagnosis for an incident via POST /api/v1/incidents/{incident_id}/diagnose."""
         url = (
             f"{self.base_url}{INCIDENTS_ENDPOINT_PATH}/{incident_id}/diagnose"
             f"?allow_cross_project={'true' if allow_cross_project else 'false'}"
+            f"&force_recheck={'true' if force_recheck else 'false'}"
         )
         headers = {
             "Accept": "application/json",
@@ -302,8 +308,10 @@ class DevMemoryClient:
         req = urllib.request.Request(url=url, headers=headers, method="POST", data=b"{}")
 
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                resp_data = json.loads(resp.read().decode("utf-8", errors="replace"))
+            with urllib.request.urlopen(req, timeout=self.diagnosis_timeout) as resp:
+                resp_bytes = resp.read()
+                resp_text = resp_bytes.decode("utf-8", errors="replace")
+                resp_data = json.loads(resp_text)
                 data = resp_data.get("data") or {}
 
                 hypotheses_raw = data.get("hypotheses") or []
@@ -324,16 +332,61 @@ class DevMemoryClient:
                         )
                     )
 
+                # Format suggested steps: split on semicolons or newlines if joined
+                suggested_steps: list[str] = []
+                raw_fix = data.get("suggested_fix")
+                if raw_fix:
+                    split_steps = [s.strip() for s in re.split(r";\s*|\n+", raw_fix) if s.strip()]
+                    suggested_steps = split_steps if split_steps else [raw_fix]
+
+                source_val = data.get("source")
+                is_reused = bool(data.get("idempotent"))
+                is_fallback = bool(source_val and "fallback" in source_val.lower())
+                status_str = "reused" if is_reused else ("fallback" if is_fallback else "success")
+                probable_cause = data.get("likely_cause") or data.get("summary")
+
                 return BackendDiagnosisResponse(
-                    status="success",
+                    status=status_str,
                     event_id=event_id,
                     incident_id=incident_id,
-                    probable_cause=data.get("summary"),
+                    probable_cause=probable_cause,
                     hypotheses=hypotheses_list,
-                    suggested_steps=[data["suggested_fix"]] if data.get("suggested_fix") else [],
+                    suggested_steps=suggested_steps,
                     similar_incidents=similar_matches,
                     is_verified_fix=False,
+                    source=source_val,
+                    is_reused=is_reused,
+                    is_fallback=is_fallback,
                     raw_response=data,
                 )
-        except Exception:
-            return None
+        except urllib.error.HTTPError as http_err:
+            status_code = http_err.code
+            err_body = http_err.read().decode("utf-8", errors="replace") if hasattr(http_err, "read") else ""
+            err_msg = f"HTTP {status_code}: {http_err.reason}"
+            try:
+                err_json = json.loads(err_body)
+                if isinstance(err_json, dict) and "detail" in err_json:
+                    err_msg = str(err_json["detail"])
+            except Exception:
+                pass
+            return BackendDiagnosisResponse(
+                status="unavailable",
+                event_id=event_id,
+                incident_id=incident_id,
+                error_message=err_msg,
+            )
+        except (TimeoutError, urllib.error.URLError, OSError) as net_err:
+            err_name = "Timeout" if isinstance(net_err, TimeoutError) or "timed out" in str(net_err).lower() else "Connection error"
+            return BackendDiagnosisResponse(
+                status="unavailable",
+                event_id=event_id,
+                incident_id=incident_id,
+                error_message=f"{err_name}: {net_err}",
+            )
+        except Exception as exc:
+            return BackendDiagnosisResponse(
+                status="unavailable",
+                event_id=event_id,
+                incident_id=incident_id,
+                error_message=f"Diagnosis error: {exc}",
+            )

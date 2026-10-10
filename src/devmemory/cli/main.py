@@ -290,7 +290,7 @@ def _render_diagnostic_report(diag: DiagnosticResult, cwd: Path) -> None:
 
 
 def _render_backend_report(ingestion: IngestionResult) -> None:
-    """Render backend ingestion status, incident identifier, and memory matches."""
+    """Render backend ingestion status, incident identifier, and diagnosis outcomes."""
     if ingestion.is_offline:
         console.print(f"\n[dim yellow]Backend Status:[/] Offline (Local mode - {ingestion.error_message})")
         return
@@ -301,12 +301,33 @@ def _render_backend_report(ingestion: IngestionResult) -> None:
 
     console.print("\n[bold green]--- DevMemory Platform Diagnosis ---[/]")
     if ingestion.incident_id:
-        console.print(f"  [bold cyan]Incident ID:[/] [magenta]{ingestion.incident_id}[/]")
+        console.print(f"  [bold cyan]Incident ID:[/]   [magenta]{ingestion.incident_id}[/]")
 
     diag = ingestion.diagnosis
     if not diag:
         console.print("  [dim]Run recorded successfully in DevMemory backend.[/]")
         return
+
+    # Outcome 4: Diagnosis unavailable / error / empty response
+    if diag.status in ("unavailable", "error") or (not diag.probable_cause and not diag.suggested_steps):
+        err_msg = diag.error_message or "Diagnosis details unavailable from server"
+        console.print(f"  [bold red]Diagnosis:[/]     [yellow]Unavailable ({err_msg})[/]")
+        console.print(f"  [dim]Run recorded in backend. To re-run diagnosis, use: devmemory diagnose --incident {ingestion.incident_id}[/]")
+        if diag.similar_incidents:
+            console.print(f"\n  [bold cyan]Memory Matches ({len(diag.similar_incidents)}):[/]")
+            for inc in diag.similar_incidents:
+                scope = "[magenta]Cross-Project[/]" if inc.is_cross_project else "[blue]Project History[/]"
+                console.print(f"    - {scope} ({inc.project_name}): {inc.summary}")
+        return
+
+    # Outcome 2: Existing diagnosis reused
+    if diag.is_reused or diag.status == "reused":
+        console.print("  [bold yellow]Notice:[/]        [dim]Retrieved previously stored diagnosis from incident history (idempotent result).[/]")
+    # Outcome 3: Fallback diagnosis synthesized
+    elif diag.is_fallback or diag.status == "fallback":
+        console.print("  [bold yellow]Notice:[/]        [dim]External AI unavailable; fallback diagnosis synthesized from local knowledge base.[/]")
+    elif diag.source:
+        console.print(f"  [bold cyan]Source:[/]        [dim]{diag.source}[/]")
 
     if diag.probable_cause:
         console.print(f"  [bold cyan]Probable Cause:[/] {diag.probable_cause}")

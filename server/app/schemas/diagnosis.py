@@ -33,6 +33,11 @@ class DiagnosisCreate(BaseModel):
         description="Optional client-specified stable diagnosis ID for idempotency",
     )
     summary: str = Field(..., min_length=1, max_length=2000, description="Executive explanation of the error")
+    likely_cause: Optional[str] = Field(
+        default=None,
+        max_length=3000,
+        description="Detailed explanation of the exact failure cause based strictly on evidence",
+    )
     hypotheses: List[HypothesisItem] = Field(
         default_factory=list,
         description="Structured hypotheses distinguishing evidence from speculation",
@@ -70,6 +75,7 @@ class DiagnosisResponse(BaseModel):
     incident_id: str
     project_id: str
     summary: str
+    likely_cause: Optional[str] = None
     hypotheses: List[HypothesisItem] = Field(default_factory=list)
     suggested_fix: Optional[str] = None
     matched_memory: List[MatchedMemoryRef] = Field(default_factory=list)

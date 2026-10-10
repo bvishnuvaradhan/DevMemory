@@ -55,6 +55,7 @@ def create_diagnosis(
         "incident_id": incident_id,
         "project_id": project_id,
         "summary": payload.summary,
+        "likely_cause": payload.likely_cause,
         "hypotheses": [h.model_dump() for h in payload.hypotheses],
         "suggested_fix": payload.suggested_fix,
         "matched_memory": [m.model_dump() for m in payload.matched_memory],
