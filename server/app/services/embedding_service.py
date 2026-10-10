@@ -1148,6 +1148,7 @@ class ProductionMongoVectorSearchAdapter:
                             verification_status=v_status,
                             is_public=bool(doc.get("is_public", False)),
                             error_signature=doc.get("error_signature"),
+                            metadata={"search_tier": "atlas_vector_search", "is_fallback": False},
                         )
                     )
             if results:
@@ -1238,6 +1239,7 @@ class ProductionMongoVectorSearchAdapter:
                             verification_status=v_status,
                             is_public=True,
                             error_signature=doc.get("error_signature"),
+                            metadata={"search_tier": "atlas_vector_search", "is_fallback": False},
                         )
                     )
             if results:
@@ -1306,6 +1308,7 @@ class ProductionMongoVectorSearchAdapter:
                             verification_status=v_status,
                             is_public=bool(doc.get("is_public", False)),
                             error_signature=doc.get("error_signature"),
+                            metadata={"search_tier": "in_memory_cosine_fallback", "is_fallback": True},
                         ),
                     )
                 )
@@ -1370,6 +1373,7 @@ class ProductionMongoVectorSearchAdapter:
                             verification_status=v_status,
                             is_public=True,
                             error_signature=doc.get("error_signature"),
+                            metadata={"search_tier": "in_memory_cosine_fallback", "is_fallback": True},
                         ),
                     )
                 )
@@ -1418,8 +1422,15 @@ def vector_search_incidents(
         )
         results.extend(cross_results)
 
-    results.sort(key=lambda r: r.similarity_score, reverse=True)
-    top_results = results[:limit]
+    seen_ids = set()
+    unique_results = []
+    for r in results:
+        if r.incident_id not in seen_ids:
+            seen_ids.add(r.incident_id)
+            unique_results.append(r)
+
+    unique_results.sort(key=lambda r: r.similarity_score, reverse=True)
+    top_results = unique_results[:limit]
 
     return [
         {
@@ -1436,7 +1447,7 @@ def vector_search_incidents(
                 else str(r.verification_status)
             ),
             "is_public": r.is_public,
-            "source": "vector_search",
+            "source": r.metadata.get("search_tier", "vector_search") if r.metadata else "vector_search",
         }
         for r in top_results
     ]

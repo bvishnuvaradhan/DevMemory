@@ -13,9 +13,11 @@ Validates:
 
 import math
 from datetime import datetime, timezone
+from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 from pymongo.database import Database
+import pymongo.collection
 
 from ai_engine.schemas import FixVerificationStatus
 from app.db.mongo import mongo_manager
@@ -418,4 +420,80 @@ def test_ai_diagnosis_retrieval_incorporates_vector_candidates(test_db: Database
     finally:
         test_db.incidents.delete_many({"incident_id": {"$in": [inc_target, inc_precedent]}})
         test_db.diagnoses.delete_many({"incident_id": inc_target})
+        test_db.projects.delete_one({"project_id": proj_id})
+
+
+def test_empty_atlas_results_triggers_resilient_in_memory_fallback(test_db: Database):
+    """Verify that when Atlas $vectorSearch returns zero results or raises an error,
+
+    ProductionMongoVectorSearchAdapter falls back to in-memory cosine ranking,
+    maintains tenant boundaries, respects similarity thresholds, and accurately
+    tags fallback metadata without misrepresenting results as Atlas-generated.
+    """
+    adapter = ProductionMongoVectorSearchAdapter(db=test_db)
+    proj_id = "proj_test_empty_fallback"
+    _ensure_project(test_db, proj_id)
+    dim = 1024
+
+    vec = _make_unit_vector(dim, 50)
+    inc_id = f"inc_fallback_test_{int(datetime.now().timestamp())}"
+
+    test_db.incidents.insert_one({
+        "incident_id": inc_id,
+        "project_id": proj_id,
+        "error_type": "IndexError",
+        "error_message": "list index out of range",
+        "error_signature": compute_error_signature("IndexError", "list index out of range"),
+        "command": "python worker.py",
+        "embedding": vec,
+        "embedding_model": "voyage-code-4",
+        "embedding_dimension": dim,
+        "verification_status": "verified",
+        "resolution_summary": "Check list length before indexing",
+        "is_public": False,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    try:
+        # Case 1: Atlas aggregate returns empty list (0 results from vectorSearch)
+        with patch.object(pymongo.collection.Collection, "aggregate", return_value=iter([])) as mock_agg:
+            results = adapter.search_project_vectors(
+                query_vector=vec,
+                project_id=proj_id,
+                limit=5,
+                min_score=0.50,
+            )
+            assert mock_agg.called
+            assert len(results) == 1
+            assert results[0].incident_id == inc_id
+            assert results[0].project_id == proj_id
+            assert results[0].similarity_score >= 0.95
+            assert results[0].metadata.get("is_fallback") is True
+            assert results[0].metadata.get("search_tier") == "in_memory_cosine_fallback"
+
+        # Case 2: Atlas aggregate raises an exception (e.g. OperationFailure or connection timeout)
+        with patch.object(pymongo.collection.Collection, "aggregate", side_effect=Exception("Atlas vector search timeout")) as mock_agg_err:
+            err_results = adapter.search_project_vectors(
+                query_vector=vec,
+                project_id=proj_id,
+                limit=5,
+                min_score=0.50,
+            )
+            assert mock_agg_err.called
+            assert len(err_results) == 1
+            assert err_results[0].incident_id == inc_id
+            assert err_results[0].metadata.get("is_fallback") is True
+
+        # Case 3: Genuine empty dataset returns empty list without error
+        with patch.object(pymongo.collection.Collection, "aggregate", return_value=iter([])):
+            empty_results = adapter.search_project_vectors(
+                query_vector=vec,
+                project_id="nonexistent_project_id",
+                limit=5,
+                min_score=0.50,
+            )
+            assert empty_results == []
+
+    finally:
+        test_db.incidents.delete_one({"incident_id": inc_id})
         test_db.projects.delete_one({"project_id": proj_id})
