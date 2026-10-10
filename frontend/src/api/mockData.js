@@ -70,22 +70,50 @@ export const MOCK_PROJECTS = [
     medianDurationMs: 88,
     baselineDurationMs: 90,
   },
+  {
+    id: "proj_notification_service",
+    name: "notification-service",
+    description: "Real-time multi-channel notification dispatcher & queue consumer",
+    language: "Go 1.22",
+    framework: "Gin / Redis",
+    repository: "github.com/org/notification-service",
+    totalRuns: 52,
+    failureCount: 2,
+    verifiedFixCount: 2,
+    lastRunAt: "2026-10-10T12:30:00Z",
+    lastRunStatus: "success",
+    medianDurationMs: 45,
+    baselineDurationMs: 50,
+  },
 ];
 
 export const MOCK_GLOBAL_STATS = {
-  totalProjects: 4,
-  totalRuns: 169,
-  totalFailures: 26,
-  failureRate: "15.4%",
-  verifiedFixes: 20,
-  verifiedFixRate: "76.9%",
+  totalProjects: 5,
+  totalRuns: 221,
+  totalFailures: 28,
+  failureRate: "12.7%",
+  verifiedFixes: 22,
+  verifiedFixRate: "78.6%",
   recurringErrorsCount: 3,
-  medianExecutionTimeMs: 185,
+  medianExecutionTimeMs: 145,
   activeIncidentsCount: 6,
   isMock: true,
 };
 
 export const MOCK_RECENT_RUNS = [
+  {
+    eventId: "evt_3f8c12a0",
+    projectId: "proj_notification_service",
+    projectName: "notification-service",
+    command: "go test ./cmd/dispatcher/...",
+    exitCode: 0,
+    status: "success",
+    durationMs: 45,
+    timestamp: "2026-10-10T12:30:00Z",
+    errorSummary: null,
+    sourceFile: null,
+    lineNumber: null,
+  },
   {
     eventId: "evt_9b1a7f40",
     projectId: "proj_auth_service",
@@ -539,9 +567,36 @@ export const MOCK_PERFORMANCE_BY_PROJECT = {
     sampleCount: 0,
     runs: [], // Empty state test case!
   },
+  proj_notification_service: {
+    projectId: "proj_notification_service",
+    projectName: "notification-service",
+    baselineMs: 50,
+    medianMs: 45,
+    tolerancePercent: 20,
+    sampleCount: 5,
+    runs: [
+      { id: "n1", runIndex: 1, timestamp: "11:00", command: "go test ./...", durationMs: 44, exitCode: 0, isRegression: false },
+      { id: "n2", runIndex: 2, timestamp: "11:30", command: "go test ./...", durationMs: 46, exitCode: 0, isRegression: false },
+      { id: "n3", runIndex: 3, timestamp: "12:00", command: "go test ./...", durationMs: 45, exitCode: 0, isRegression: false },
+      { id: "n4", runIndex: 4, timestamp: "12:20", command: "go test ./...", durationMs: 48, exitCode: 0, isRegression: false },
+      { id: "n5", runIndex: 5, timestamp: "12:30", command: "go test ./...", durationMs: 43, exitCode: 0, isRegression: false },
+    ],
+  },
 };
 
 export const MOCK_EVENTS = [
+  {
+    eventId: "evt_3f8c12a0",
+    timestamp: "2026-10-10T12:30:00Z",
+    projectId: "proj_notification_service",
+    projectName: "notification-service",
+    eventType: "COMMAND_RUN",
+    status: "SUCCESS",
+    summary: "go test ./cmd/dispatcher/... passed without regression",
+    details: "Execution verified against 50ms baseline benchmark.",
+    relatedCommand: "go test ./cmd/dispatcher/...",
+    sourceLocation: { file: "cmd/dispatcher/main_test.go", line: 32 },
+  },
   {
     eventId: "evt_9b1a7f40",
     timestamp: "2026-10-10T12:15:30Z",
