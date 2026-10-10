@@ -1,5 +1,6 @@
 """Incident registration, retrieval, historical memory, diagnosis, and fix tracking API routes."""
 
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pymongo.database import Database
 
@@ -10,7 +11,7 @@ from app.schemas.fix import FixOutcomeCreate, FixOutcomeResponse
 from app.schemas.incident import IncidentCreate, IncidentResponse
 from app.schemas.pagination import PaginatedResponse
 from app.schemas import ResponseEnvelope
-from app.services import analytics_service, diagnosis_service, fix_service, incident_service
+from app.services import ai_service, analytics_service, diagnosis_service, fix_service, incident_service
 
 router = APIRouter(prefix="/incidents", tags=["Incidents"])
 
@@ -81,6 +82,30 @@ async def create_diagnosis_endpoint(
     db: Database = Depends(get_database),
 ):
     diagnosis, is_new = diagnosis_service.create_diagnosis(db, incident_id=incident_id, payload=payload)
+    response.status_code = status.HTTP_201_CREATED if is_new else status.HTTP_200_OK
+    return ResponseEnvelope[DiagnosisResponse](success=True, data=diagnosis, error=None)
+
+
+@router.post(
+    "/{incident_id}/diagnose",
+    response_model=ResponseEnvelope[DiagnosisResponse],
+    summary="Trigger AI diagnosis generation and persist result for an incident",
+)
+async def diagnose_incident_endpoint(
+    incident_id: str,
+    response: Response,
+    allow_cross_project: bool = Query(default=True, description="Allow searching public cross-project precedents"),
+    has_cross_project_read: bool = Query(default=False, description="Server permission for cross-project read"),
+    disable_external_inference: Optional[bool] = Query(default=None, description="Force offline inference"),
+    db: Database = Depends(get_database),
+):
+    diagnosis, is_new = ai_service.generate_and_store_incident_diagnosis(
+        db=db,
+        incident_id=incident_id,
+        allow_cross_project=allow_cross_project,
+        has_cross_project_read=has_cross_project_read,
+        disable_external_inference=disable_external_inference,
+    )
     response.status_code = status.HTTP_201_CREATED if is_new else status.HTTP_200_OK
     return ResponseEnvelope[DiagnosisResponse](success=True, data=diagnosis, error=None)
 

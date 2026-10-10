@@ -21,6 +21,10 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
 ]
+ai = [
+    "pydantic>=2.7.0",
+    "groq>=0.9.0",
+]
 
 [project.scripts]
 devmemory = "devmemory.cli.main:app"
@@ -30,4 +34,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", ".", "server"]

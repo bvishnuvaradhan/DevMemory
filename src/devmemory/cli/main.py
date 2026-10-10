@@ -308,6 +308,14 @@ def _render_backend_report(ingestion: IngestionResult) -> None:
         console.print("  [dim]Run recorded successfully in DevMemory backend.[/]")
         return
 
+    if diag.probable_cause:
+        console.print(f"  [bold cyan]Probable Cause:[/] {diag.probable_cause}")
+
+    if diag.suggested_steps:
+        console.print("  [bold cyan]Suggested Fix:[/]")
+        for step in diag.suggested_steps:
+            console.print(f"    - {step}")
+
     if diag.similar_incidents:
         console.print(f"\n  [bold cyan]Memory Matches ({len(diag.similar_incidents)}):[/]")
         for inc in diag.similar_incidents:

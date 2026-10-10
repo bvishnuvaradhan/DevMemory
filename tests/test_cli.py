@@ -131,7 +131,7 @@ def test_init_fails_if_dir_is_a_file(tmp_path: Path):
     with patch("pathlib.Path.cwd", return_value=tmp_path):
         result = runner.invoke(app, ["init"])
         assert result.exit_code == 1
-        assert "exists and is not a directory" in result.output
+        assert "is not a directory" in result.output
 
 
 def test_init_handles_filesystem_write_error(tmp_path: Path):

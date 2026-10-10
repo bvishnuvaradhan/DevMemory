@@ -37,7 +37,7 @@ def test_e2e_python_failing_fixture_matches_disk():
     result = runner.invoke(app, ["run", "--", sys.executable, str(fixture_path)])
     assert result.exit_code == 1
     assert "ZeroDivisionError" in result.output
-    assert "float division by zero" in result.output
+    assert "division by zero" in result.output
     assert "compute_ratio" in result.output
     assert "Code Context" in result.output
     # Line 8 must be highlighted

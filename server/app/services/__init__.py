@@ -8,9 +8,11 @@ from app.services import (
     performance_service,
     project_service,
     run_service,
+    ai_service,
 )
 
 __all__ = [
+    "ai_service",
     "analytics_service",
     "diagnosis_service",
     "fix_service",

@@ -178,8 +178,10 @@ class DevMemoryClient:
 
                     diag = None
                     if incident_id:
-                        # Attempt to query historical memory for this incident
-                        diag = self._fetch_incident_history(incident_id, payload.event_id)
+                        # Attempt active AI diagnosis first, falling back to history
+                        diag = self.diagnose_incident(incident_id, payload.event_id)
+                        if not diag:
+                            diag = self._fetch_incident_history(incident_id, payload.event_id)
 
                     return IngestionResult(
                         success=True,
@@ -280,3 +282,58 @@ class DevMemoryClient:
                 event_id=event_id,
                 incident_id=incident_id,
             )
+
+    def diagnose_incident(
+        self,
+        incident_id: str,
+        event_id: str,
+        allow_cross_project: bool = True,
+    ) -> Optional[BackendDiagnosisResponse]:
+        """Trigger AI diagnosis for an incident via POST /api/v1/incidents/{incident_id}/diagnose."""
+        url = (
+            f"{self.base_url}{INCIDENTS_ENDPOINT_PATH}/{incident_id}/diagnose"
+            f"?allow_cross_project={'true' if allow_cross_project else 'false'}"
+        )
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "DevMemory-CLI/1.0.0",
+        }
+        req = urllib.request.Request(url=url, headers=headers, method="POST", data=b"{}")
+
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                resp_data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                data = resp_data.get("data") or {}
+
+                hypotheses_raw = data.get("hypotheses") or []
+                hypotheses_list = [
+                    h.get("cause") if isinstance(h, dict) else str(h)
+                    for h in hypotheses_raw
+                ]
+
+                similar_matches: list[SimilarIncidentMatch] = []
+                for m in data.get("matched_memory") or []:
+                    similar_matches.append(
+                        SimilarIncidentMatch(
+                            incident_id=str(m.get("source_id", "unknown")),
+                            project_name=str(m.get("source_type", "memory")),
+                            similarity_score=1.0,
+                            summary=str(m.get("relevance_reason") or ""),
+                            is_cross_project=(m.get("source_type") == "cross_project"),
+                        )
+                    )
+
+                return BackendDiagnosisResponse(
+                    status="success",
+                    event_id=event_id,
+                    incident_id=incident_id,
+                    probable_cause=data.get("summary"),
+                    hypotheses=hypotheses_list,
+                    suggested_steps=[data["suggested_fix"]] if data.get("suggested_fix") else [],
+                    similar_incidents=similar_matches,
+                    is_verified_fix=False,
+                    raw_response=data,
+                )
+        except Exception:
+            return None
