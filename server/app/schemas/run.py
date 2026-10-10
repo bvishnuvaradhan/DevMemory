@@ -81,6 +81,11 @@ class RunCreate(BaseModel):
         default=None,
         description="Extracted stack trace and source location info",
     )
+    cwd: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+        description="Working directory where command was executed",
+    )
 
 
 class RunResponse(BaseModel):
@@ -97,6 +102,7 @@ class RunResponse(BaseModel):
     started_at: datetime
     finished_at: datetime
     created_at: datetime
+    cwd: Optional[str] = None
     environment: Optional[EnvironmentInfo] = None
     error_context: Optional[ErrorContext] = None
     idempotent: bool = False

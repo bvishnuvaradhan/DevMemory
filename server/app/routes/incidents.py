@@ -63,6 +63,7 @@ async def vector_search_incidents_endpoint(
     project_id: str = Query(..., min_length=1, description="Active project ID"),
     allow_cross_project: bool = Query(default=False, description="Search public cross-project precedents"),
     has_cross_project_read: bool = Query(default=False, description="Server grant permitting cross-project memory read"),
+    include_general_knowledge: bool = Query(default=False, description="Include curated general programming knowledge base matches"),
     limit: int = Query(default=5, ge=1, le=50, description="Max matches to return"),
     min_score: float = Query(default=0.50, ge=0.0, le=1.0, description="Minimum cosine similarity threshold"),
     db: Database = Depends(get_database),
@@ -74,6 +75,7 @@ async def vector_search_incidents_endpoint(
         project_id=project_id,
         allow_cross_project=allow_cross_project,
         has_cross_project_read=has_cross_project_read,
+        include_general_knowledge=include_general_knowledge,
         limit=limit,
         min_score=min_score,
     )

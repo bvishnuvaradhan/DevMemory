@@ -15,6 +15,7 @@ from app.db.mongo import mongo_manager
 from app.routes.fixes import router as fixes_router
 from app.routes.health import router as health_router
 from app.routes.incidents import router as incidents_router
+from app.routes.knowledge import router as knowledge_router
 from app.routes.performance import router as performance_router
 from app.routes.projects import router as projects_router
 from app.routes.runs import router as runs_router
@@ -146,6 +147,7 @@ def create_app() -> FastAPI:
     app.include_router(incidents_router, prefix="/api/v1")
     app.include_router(fixes_router, prefix="/api/v1")
     app.include_router(performance_router, prefix="/api/v1")
+    app.include_router(knowledge_router, prefix="/api/v1")
 
     return app
 

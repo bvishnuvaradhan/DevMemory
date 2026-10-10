@@ -31,6 +31,7 @@ COMMAND_RUNS_VALIDATOR = {
             "exit_code": {"bsonType": "int"},
             "duration_ms": {"bsonType": "int"},
             "created_at": {"bsonType": "date"},
+            "cwd": {"bsonType": ["string", "null"]},
         },
     }
 }
@@ -144,6 +145,35 @@ PERFORMANCE_BASELINES_VALIDATOR = {
     }
 }
 
+KNOWLEDGE_BASE_VALIDATOR = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["kb_id", "title", "error_pattern", "language", "explanation", "created_at"],
+        "properties": {
+            "kb_id": {"bsonType": "string"},
+            "title": {"bsonType": "string"},
+            "error_pattern": {"bsonType": "string"},
+            "language": {"bsonType": "string"},
+            "category": {"bsonType": "string"},
+            "explanation": {"bsonType": "string"},
+            "possible_causes": {"bsonType": "array", "items": {"bsonType": "string"}},
+            "diagnostic_checks": {"bsonType": "array", "items": {"bsonType": "string"}},
+            "suggested_resolutions": {"bsonType": "array", "items": {"bsonType": "string"}},
+            "tags": {"bsonType": "array", "items": {"bsonType": "string"}},
+            "source_type": {"bsonType": "string"},
+            "created_at": {"bsonType": "date"},
+            "updated_at": {"bsonType": "date"},
+            "embedding": {
+                "bsonType": "array",
+                "items": {"bsonType": ["double", "int"]},
+            },
+            "embedding_model": {"bsonType": "string"},
+            "embedding_dimension": {"bsonType": "int"},
+            "embedding_status": {"bsonType": "string"},
+        },
+    }
+}
+
 
 def _ensure_collection_with_validator(db: Database, name: str, validator: dict) -> None:
     """Create collection with schema validator if missing, or update validator safely."""
@@ -174,6 +204,7 @@ def init_indexes(db: Database) -> None:
     _ensure_collection_with_validator(db, "fix_outcomes", FIX_OUTCOMES_VALIDATOR)
     _ensure_collection_with_validator(db, "performance_runs", PERFORMANCE_RUNS_VALIDATOR)
     _ensure_collection_with_validator(db, "performance_baselines", PERFORMANCE_BASELINES_VALIDATOR)
+    _ensure_collection_with_validator(db, "knowledge_base", KNOWLEDGE_BASE_VALIDATOR)
 
     # 2. Projects indexes
     try:
@@ -297,7 +328,16 @@ def init_indexes(db: Database) -> None:
     except Exception as exc:
         logger.warning("Index error on performance_baselines: %s", exc)
 
-    # 9. Atlas Vector Search index on incidents
+    # 9. Knowledge base indexes
+    try:
+        db.knowledge_base.create_index("kb_id", unique=True, name="idx_knowledge_base_id_unique")
+        db.knowledge_base.create_index([("language", ASCENDING)], name="idx_knowledge_base_language")
+        db.knowledge_base.create_index([("category", ASCENDING)], name="idx_knowledge_base_category")
+        db.knowledge_base.create_index([("tags", ASCENDING)], name="idx_knowledge_base_tags")
+    except Exception as exc:
+        logger.warning("Index error on knowledge_base: %s", exc)
+
+    # 10. Atlas Vector Search index on incidents
     try:
         from app.services.embedding_service import ensure_atlas_vector_index
         ensure_atlas_vector_index(db)

@@ -40,6 +40,7 @@ err_console = Console(stderr=True)
 
 CONFIG_DIR_NAME = ".devmemory"
 CONFIG_FILE_NAME = "config.json"
+PROJECT_FILE_NAME = "project.json"
 CONFIG_VERSION = 1
 DEFAULT_BACKEND_URL = "http://localhost:8000"
 
@@ -68,19 +69,20 @@ def main(
 
 def _find_project_root(start_dir: Optional[Path] = None) -> tuple[Optional[Path], Optional[dict[str, Any]]]:
     """
-    Traverse upwards from start_dir to find .devmemory/config.json.
+    Traverse upwards from start_dir to find .devmemory/project.json or .devmemory/config.json.
     Returns (root_path, config_dict).
     """
     current = (start_dir or Path.cwd()).resolve()
     for directory in [current, *current.parents]:
-        cfg_file = directory / CONFIG_DIR_NAME / CONFIG_FILE_NAME
-        if cfg_file.is_file():
-            try:
-                data = json.loads(cfg_file.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    return directory, data
-            except Exception:
-                pass
+        for candidate_name in (PROJECT_FILE_NAME, CONFIG_FILE_NAME):
+            cfg_file = directory / CONFIG_DIR_NAME / candidate_name
+            if cfg_file.is_file():
+                try:
+                    data = json.loads(cfg_file.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        return directory, data
+                except Exception:
+                    pass
     return None, None
 
 
@@ -136,17 +138,37 @@ def init(
         "-b",
         help="DevMemory backend API URL.",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Force reinitialization if project already exists.",
+    ),
 ) -> None:
     """Initialize DevMemory in the current working directory and register project on backend."""
     cwd = Path.cwd().resolve()
     config_dir = cwd / CONFIG_DIR_NAME
+    project_path = config_dir / PROJECT_FILE_NAME
     config_path = config_dir / CONFIG_FILE_NAME
 
+    # Check if .devmemory is a file instead of a directory
+    if config_dir.exists() and not config_dir.is_dir():
+        err_console.print(
+            f"[bold red]Error:[/] Target path '{config_dir}' exists and is not a directory."
+        )
+        raise typer.Exit(code=1)
+
     # Check if configuration already exists
-    if config_path.exists():
-        existing_data, err = _load_existing_config(config_path)
+    existing_cfg_file = None
+    if project_path.exists():
+        existing_cfg_file = project_path
+    elif config_path.exists():
+        existing_cfg_file = config_path
+
+    if existing_cfg_file and not force:
+        existing_data, err = _load_existing_config(existing_cfg_file)
         if err:
-            err_console.print(f"[bold red]Error:[/] Invalid existing configuration found at {config_path}:")
+            err_console.print(f"[bold red]Error:[/] Invalid existing configuration found at {existing_cfg_file}:")
             err_console.print(f"  {err}")
             err_console.print("[yellow]Hint:[/] Correct or remove the invalid file to reinitialize.")
             raise typer.Exit(code=1)
@@ -166,16 +188,9 @@ def init(
             f"  [cyan]Project Name:[/] {proj_name}\n"
             f"  [cyan]Project ID:[/]   {proj_id}{backend_note}\n"
             f"  [cyan]Root:[/]         {cwd}\n"
-            f"  [cyan]Config:[/]       {config_path}"
+            f"  [cyan]Config:[/]       {existing_cfg_file}"
         )
         return
-
-    # Check if .devmemory is a file instead of a directory
-    if config_dir.exists() and not config_dir.is_dir():
-        err_console.print(
-            f"[bold red]Error:[/] Target path '{config_dir}' exists and is not a directory."
-        )
-        raise typer.Exit(code=1)
 
     resolved_name = project_name.strip() if project_name and project_name.strip() else cwd.name
     new_project_id = str(uuid.uuid4())
@@ -190,20 +205,25 @@ def init(
         "created_at": now_iso,
     }
 
-    try:
-        _write_config_atomic(config_path, config_data)
-    except OSError as exc:
-        err_console.print(f"[bold red]Error:[/] Failed to write configuration at {config_path}: {exc}")
-        raise typer.Exit(code=1)
-
-    # Register project on backend
+    # Register project on backend first before writing local config
     client = DevMemoryClient(base_url=backend_url)
     reg_result = client.register_project(project_id=new_project_id, name=resolved_name)
+    if not reg_result.success and not reg_result.is_offline:
+        err_console.print(f"[bold red]Error:[/] Backend project registration failed: {reg_result.error_message}")
+        raise typer.Exit(code=1)
+
     reg_status_str = (
         "[green]Registered on backend[/]"
         if reg_result.success
         else f"[yellow]Local config created (backend offline - {reg_result.error_message})[/]"
     )
+
+    try:
+        _write_config_atomic(project_path, config_data)
+        _write_config_atomic(config_path, config_data)
+    except OSError as exc:
+        err_console.print(f"[bold red]Error:[/] Failed to write configuration at {project_path}: {exc}")
+        raise typer.Exit(code=1)
 
     console.print(
         f"[bold green]Initialized DevMemory project successfully![/]\n"
@@ -212,7 +232,7 @@ def init(
         f"  [cyan]Project Root:[/] {cwd}\n"
         f"  [cyan]Backend URL:[/]  {backend_url}\n"
         f"  [cyan]Status:[/]       {reg_status_str}\n"
-        f"  [cyan]Config File:[/]  {config_path}"
+        f"  [cyan]Config File:[/]  {project_path}"
     )
 
 
@@ -402,7 +422,7 @@ def run(
     result = runner.run(cmd_args, cwd=cwd)
 
     # Render execution summary
-    cmd_display = " ".join(cmd_args)
+    cmd_display = redact_secrets(" ".join(cmd_args))
     if result.interrupted:
         status_line = "[bold yellow]INTERRUPTED[/]"
     elif result.exit_code == 0:
@@ -417,25 +437,26 @@ def run(
     console.print(f"  [cyan]Duration:[/]  {result.duration_ms:.1f}ms")
 
     if result.error_message:
-        err_console.print(f"  [bold red]Execution error:[/] {result.error_message}")
-
-    # Source-aware error diagnosis on failure
-    diagnostic = None
-    if result.exit_code != 0 and not result.interrupted:
-        diagnostic = analyze_error_output(
-            stdout=result.stdout,
-            stderr=result.stderr,
-            cwd=cwd,
-            project_root=project_root or cwd,
-        )
-        _render_diagnostic_report(diagnostic, cwd=cwd)
+        err_console.print(f"  [bold red]Execution error:[/] {redact_secrets(result.error_message)}")
 
     # Ingestion & Backend Integration
     event_id = str(uuid.uuid4())
     sanitized_stdout = redact_secrets(result.stdout)
     sanitized_stderr = redact_secrets(result.stderr)
+
+    # Source-aware error diagnosis on failure
+    diagnostic = None
+    if result.exit_code != 0 and not result.interrupted:
+        diagnostic = analyze_error_output(
+            stdout=sanitized_stdout,
+            stderr=sanitized_stderr,
+            cwd=cwd,
+            project_root=project_root or cwd,
+        )
+        _render_diagnostic_report(diagnostic, cwd=cwd)
+
     fallback_err_msg = (
-        result.error_message
+        redact_secrets(result.error_message)
         or (sanitized_stderr.strip().splitlines()[0] if sanitized_stderr.strip() else f"Command failed with exit code {result.exit_code}")
     ) if result.exit_code != 0 else None
     error_context = _convert_diagnostic_to_backend_context(diagnostic, fallback_message=fallback_err_msg)

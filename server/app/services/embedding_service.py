@@ -1380,6 +1380,64 @@ class ProductionMongoVectorSearchAdapter:
         candidates.sort(key=lambda x: x[0], reverse=True)
         return [c[1] for c in candidates[:limit]]
 
+    def search_knowledge_base_vectors(
+        self,
+        query_vector: List[float],
+        limit: int = 5,
+        min_score: float = 0.40,
+    ) -> List[VectorSearchResult]:
+        """Search curated knowledge base collection using vector cosine similarity.
+
+        Guarantees:
+        - Never returns project-specific incident data.
+        - Sets project_id=None and source='knowledge_base'.
+        - Sets verification_status=FixVerificationStatus.UNVERIFIED (unverified fix guarantee).
+        """
+        norm_query = self._validate_query_vector(query_vector)
+        if not norm_query:
+            return []
+
+        cursor = self.db.knowledge_base.find(
+            {self.vector_field: {"$exists": True, "$type": "array"}},
+            {
+                "_id": 0,
+                "kb_id": 1,
+                "title": 1,
+                "explanation": 1,
+                "error_pattern": 1,
+                "suggested_resolutions": 1,
+                self.vector_field: 1,
+            },
+        )
+        candidates = []
+        for doc in cursor:
+            stored_vec = doc.get(self.vector_field)
+            if not stored_vec or len(stored_vec) != len(norm_query):
+                continue
+            score = self._cosine_similarity(norm_query, stored_vec)
+            if score >= min_score:
+                resolutions = "; ".join(doc.get("suggested_resolutions", [])[:3])
+                candidates.append(
+                    (
+                        score,
+                        VectorSearchResult(
+                            incident_id=doc.get("kb_id", "kb_entry"),
+                            project_id=None,
+                            error_message=doc.get("error_pattern", ""),
+                            similarity_score=round(score, 4),
+                            command=None,
+                            stack_trace=None,
+                            resolution_summary=f"Suggested resolutions: {resolutions}" if resolutions else None,
+                            verification_status=FixVerificationStatus.UNVERIFIED,
+                            is_public=True,
+                            error_signature=None,
+                            metadata={"search_tier": "knowledge_base", "is_fallback": False, "source": "knowledge_base"},
+                        ),
+                    )
+                )
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return [c[1] for c in candidates[:limit]]
+
 
 def vector_search_incidents(
     db: Database,
@@ -1387,6 +1445,7 @@ def vector_search_incidents(
     project_id: Optional[str] = None,
     allow_cross_project: bool = False,
     has_cross_project_read: bool = False,
+    include_general_knowledge: bool = False,
     limit: int = 5,
     min_score: float = 0.50,
     index_name: Optional[str] = None,
@@ -1422,6 +1481,14 @@ def vector_search_incidents(
         )
         results.extend(cross_results)
 
+    if include_general_knowledge:
+        kb_results = adapter.search_knowledge_base_vectors(
+            query_vector=query_vector,
+            limit=limit,
+            min_score=min_score,
+        )
+        results.extend(kb_results)
+
     seen_ids = set()
     unique_results = []
     for r in results:
@@ -1447,7 +1514,7 @@ def vector_search_incidents(
                 else str(r.verification_status)
             ),
             "is_public": r.is_public,
-            "source": r.metadata.get("search_tier", "vector_search") if r.metadata else "vector_search",
+            "source": r.metadata.get("source") or r.metadata.get("search_tier", "vector_search") if r.metadata else "vector_search",
         }
         for r in top_results
     ]

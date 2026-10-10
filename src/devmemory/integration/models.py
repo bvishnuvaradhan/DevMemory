@@ -6,12 +6,17 @@ from typing import Any, Dict, List, Optional
 
 CLIENT_SCHEMA_VERSION = "1.0.0"
 
-# Common patterns for API keys, tokens, bearer headers, and passwords
+# Common patterns for API keys, tokens, bearer headers, credentials, and CLI flags
 SECRET_PATTERNS = [
     re.compile(r"(?i)(api[_-]?key|apikey|secret|token|password|auth[_-]?token|bearer\s+[a-zA-Z0-9_\-\.]+)\s*[:=]\s*['\"]?([a-zA-Z0-9_\-\.]{8,})['\"]?"),
+    re.compile(r"(?i)(--(?:token|api[_-]?key|password|secret))\s*[=\s]\s*['\"]?([^\s'\"]{6,})['\"]?"),
+    re.compile(r"(?i)\bBearer\s+([A-Za-z0-9_\-\.]{8,})\b"),
     re.compile(r"(?i)(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{82})"),
-    re.compile(r"(?i)(sk-[a-zA-Z0-9]{32,}|gsk_[a-zA-Z0-9]{32,})"),
+    re.compile(r"(?i)(sk-(?:proj-)?[a-zA-Z0-9_\-]{20,}|gsk_[a-zA-Z0-9]{20,})"),
+    re.compile(r"\b(AKIA|ABIA|ACCA|ASIA)[0-9A-Z]{16}\b"),
+    re.compile(r"\bDEMO_TOKEN_[A-Za-z0-9_\-]+\b"),
     re.compile(r"(?i)(mongodb(?:\+srv)?:\/\/[^\/\s]+:[^\/\s@]+@)"),
+    re.compile(r"-----BEGIN (?:[A-Z0-9_-]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9_-]+ )?PRIVATE KEY-----"),
 ]
 
 
@@ -27,12 +32,16 @@ def redact_secrets(text: str) -> str:
     for pattern in SECRET_PATTERNS:
         def _replace_match(match: re.Match[str]) -> str:
             full_val = match.group(0)
-            if len(match.groups()) >= 2:
+            if len(match.groups()) >= 2 and match.group(1).startswith("--"):
                 prefix = match.group(1)
-                secret = match.group(2)
-                return f"{prefix}: [REDACTED]"
+                return f"{prefix}=[REDACTED]"
+            elif len(match.groups()) >= 2:
+                prefix = match.group(1)
+                return f"{prefix}=[REDACTED]"
             elif "mongodb" in full_val.lower():
                 return "mongodb://[REDACTED_AUTH]@"
+            elif "bearer" in full_val.lower():
+                return "Bearer [REDACTED_SECRET]"
             else:
                 return "[REDACTED_SECRET]"
 
@@ -154,6 +163,8 @@ class IncidentPayload:
             res["environment"] = self.environment.to_dict()
         if self.error_context:
             res["error_context"] = self.error_context.to_dict()
+        if self.cwd:
+            res["cwd"] = self.cwd
         return res
 
 

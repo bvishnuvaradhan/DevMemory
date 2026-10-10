@@ -80,6 +80,7 @@ def ingest_run(db: Database, payload: RunCreate) -> tuple[RunResponse, bool]:
         "environment": payload.environment.model_dump() if payload.environment else None,
         "error_context": payload.error_context.model_dump() if payload.error_context else None,
         "incident_id": incident_id,
+        "cwd": payload.cwd or None,
     }
 
     # 3. Race-safe atomic insert with conflict detection
