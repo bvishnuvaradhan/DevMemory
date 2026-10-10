@@ -165,28 +165,28 @@ def test_audit_window_3_two_phase_gap_causes_inconsistent_state(audit_db):
     # Inconsistency Audit Findings:
     # 1. The diagnosis WAS successfully inserted into 'diagnoses' collection
     diag_doc = audit_db.diagnoses.find_one({"incident_id": incident_id})
-    assert diag_doc is not None, "VULNERABILITY CONFIRMED: Diagnosis record was committed"
-
-    # 2. BUT the incident record still has diagnosis_status == 'pending'
+    # 2. BUT the incident record was not marked 'diagnosed' due to the failure
     inc_doc = audit_db.incidents.find_one({"incident_id": incident_id})
-    assert inc_doc["diagnosis_status"] == "pending", "VULNERABILITY CONFIRMED: Incident status remains 'pending'"
+    assert inc_doc["diagnosis_status"] != "diagnosed"
 
-    # 3. get_latest_diagnosis succeeds while the incident still claims to be undiagnosed
+    # 3. get_latest_diagnosis succeeds and self-heals by reconciling incident status
     latest = diagnosis_service.get_latest_diagnosis(audit_db, incident_id)
     assert latest is not None
     assert latest.incident_id == incident_id
+    reconciled_inc = audit_db.incidents.find_one({"incident_id": incident_id})
+    assert reconciled_inc["diagnosis_status"] == "diagnosed"
 
 
 # ==============================================================================
-# Window 4: Client retry after timeout creates duplicate diagnoses
+# Window 4: Client retry after timeout returns existing diagnosis idempotently
 # ==============================================================================
 
 def test_audit_window_4_client_retry_creates_duplicate_diagnoses(audit_db):
-    """Audit: Demonstrates that retrying a successful diagnosis creates duplicate records in MongoDB."""
+    """Audit: Demonstrates that retrying a successful diagnosis returns existing record without duplication."""
     incident_id = "inc_w4_001"
     _create_test_incident(audit_db, incident_id, status="pending")
 
-    # Request 1 (Client initiates diagnosis, succeeds on server, but client times out)
+    # Request 1 (Client initiates diagnosis, succeeds on server)
     diag1, is_new1 = generate_and_store_incident_diagnosis(
         db=audit_db,
         incident_id=incident_id,
@@ -201,14 +201,15 @@ def test_audit_window_4_client_retry_creates_duplicate_diagnoses(audit_db):
         disable_external_inference=True,
     )
 
-    # Inconsistency Audit Findings:
-    # 1. is_new is True on BOTH requests (no idempotency detection for incident_id)
-    assert is_new2 is True, "VULNERABILITY CONFIRMED: Retry reported as new diagnosis"
+    # Fixed Behavior Verification:
+    # 1. is_new is False on retry (idempotent detection for incident_id)
+    assert is_new2 is False
+    assert diag2.idempotent is True
 
-    # 2. Two distinct diagnosis documents exist for the same incident
+    # 2. Exactly one diagnosis document exists for the incident (no duplicates)
     all_diags = list(audit_db.diagnoses.find({"incident_id": incident_id}))
-    assert len(all_diags) == 2, f"VULNERABILITY CONFIRMED: Expected duplicate diagnoses, found {len(all_diags)}"
-    assert all_diags[0]["diagnosis_id"] != all_diags[1]["diagnosis_id"]
+    assert len(all_diags) == 1
+    assert all_diags[0]["diagnosis_id"] == diag1.diagnosis_id
 
 
 # ==============================================================================
@@ -216,7 +217,7 @@ def test_audit_window_4_client_retry_creates_duplicate_diagnoses(audit_db):
 # ==============================================================================
 
 def test_audit_window_5_concurrent_diagnosis_requests_create_duplicates(audit_db):
-    """Audit: Demonstrates race condition when two requests diagnose the same incident concurrently."""
+    """Audit: Demonstrates atomic lease acquisition prevents duplicate diagnoses under concurrency."""
     incident_id = "inc_w5_001"
     _create_test_incident(audit_db, incident_id, status="pending")
 
@@ -242,12 +243,10 @@ def test_audit_window_5_concurrent_diagnosis_requests_create_duplicates(audit_db
     t1.join()
     t2.join()
 
-    assert len(errors) == 0
-    assert len(results) == 2
-
-    # Inconsistency Audit Findings:
+    # One worker succeeds, and competing worker either returns existing or receives 409
+    assert len(results) >= 1
     count = audit_db.diagnoses.count_documents({"incident_id": incident_id})
-    assert count == 2, f"VULNERABILITY CONFIRMED: Concurrent calls created {count} records without concurrency control"
+    assert count == 1, f"Expected strictly 1 diagnosis created under concurrency, found {count}"
 
 
 # ==============================================================================
@@ -274,14 +273,16 @@ def test_audit_window_6_duplicate_records_and_stale_status_query(audit_db):
     inc = audit_db.incidents.find_one({"incident_id": incident_id})
     assert inc["diagnosis_status"] == "pending"
 
-    # get_latest_diagnosis returns the most recent one (does not break)
+    # get_latest_diagnosis returns the most recent one and self-heals the incident status
     latest = diagnosis_service.get_latest_diagnosis(audit_db, incident_id)
     assert latest is not None
     assert latest.incident_id == incident_id
 
-    # But incident listing queries filtering by diagnosis_status: 'pending' will falsely include this incident
+    # Self-healing reconciliation verified: incident is no longer pending, it was reconciled to 'diagnosed'
     pending_incidents = list(audit_db.incidents.find({"diagnosis_status": "pending"}))
-    assert any(p["incident_id"] == incident_id for p in pending_incidents)
+    assert not any(p["incident_id"] == incident_id for p in pending_incidents)
+    inc_after = audit_db.incidents.find_one({"incident_id": incident_id})
+    assert inc_after["diagnosis_status"] == "diagnosed"
 
 
 # ==============================================================================

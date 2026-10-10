@@ -204,6 +204,10 @@ def init_indexes(db: Database) -> None:
             [("error_signature", ASCENDING), ("created_at", DESCENDING)],
             name="idx_incidents_signature_created",
         )
+        db.incidents.create_index(
+            [("diagnosis_status", ASCENDING), ("diagnosis_lease_expires_at", ASCENDING)],
+            name="idx_incidents_status_lease",
+        )
     except Exception as exc:
         logger.warning("Index error on incidents: %s", exc)
 

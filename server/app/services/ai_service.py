@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from uuid import uuid4
 from fastapi import HTTPException, status
+from pymongo import ReturnDocument
 from pymongo.database import Database
 
 import ai_engine.schemas as ai_schemas
@@ -248,6 +251,18 @@ def map_ai_response_to_cli_diagnosis_dict(
     }
 
 
+def _normalize_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Ensure datetime is offset-aware in UTC for safe comparisons."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+DEFAULT_DIAGNOSIS_LEASE_SECONDS = 60.0
+
+
 def generate_and_store_incident_diagnosis(
     db: Database,
     incident_id: str,
@@ -255,49 +270,193 @@ def generate_and_store_incident_diagnosis(
     has_cross_project_read: bool = False,
     disable_external_inference: Optional[bool] = None,
     threshold: float = 0.60,
+    force_recheck: bool = False,
+    lease_timeout_seconds: float = DEFAULT_DIAGNOSIS_LEASE_SECONDS,
 ) -> Tuple[BackendDiagnosisResponseModel, bool]:
-    """Execute AI diagnosis for an incident and persist the structured diagnosis in MongoDB."""
-    incident = db.incidents.find_one({"incident_id": incident_id}, {"_id": 0})
+    """Execute AI diagnosis for an incident and persist the structured diagnosis in MongoDB.
+
+    Guarantees:
+    1. Idempotency: Returns existing latest diagnosis if already diagnosed and force_recheck is False.
+    2. Atomic Ownership: Acquires recoverable diagnosis lease; prevents concurrent redundant diagnoses.
+    3. Stale Worker Protection: Verifies ownership before updating status; stale workers cannot overwrite active state.
+    4. Self-Healing Reconciliation: Recovers from crashes between diagnosis insertion and incident status update.
+    5. Clean Ownership Rollback: Releases lease on error only if ownership token matches.
+    """
+    incident = db.incidents.find_one({"incident_id": incident_id})
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Incident with ID '{incident_id}' not found.",
         )
 
-    run = None
-    event_id = incident.get("event_id")
-    if event_id:
-        run = db.command_runs.find_one({"event_id": event_id}, {"_id": 0})
+    now = datetime.now(timezone.utc)
 
-    req, auth = build_ai_diagnosis_payloads(
-        incident=incident,
-        run=run,
-        allow_cross_project=allow_cross_project,
-        has_cross_project_read=has_cross_project_read,
+    # 1. Idempotency and Self-Healing Pre-Check (when NOT force_recheck)
+    if not force_recheck:
+        # If already marked diagnosed, short-circuit immediately without invoking LLM
+        if incident.get("diagnosis_status") == "diagnosed":
+            existing = diagnosis_service.get_latest_diagnosis(db, incident_id)
+            if existing:
+                existing.idempotent = True
+                return existing, False
+            # Self-healing: Marked diagnosed but no diagnosis document exists in DB
+            db.incidents.update_one(
+                {"incident_id": incident_id},
+                {"$set": {"diagnosis_status": "pending"}},
+            )
+            incident["diagnosis_status"] = "pending"
+
+        # Self-healing reconciliation: check if a diagnosis document already exists
+        # (e.g. from an earlier worker crash after diagnoses.insert_one but before incident status update)
+        existing_doc = db.diagnoses.find_one(
+            {"incident_id": incident_id},
+            {"_id": 0},
+            sort=[("created_at", -1)],
+        )
+        if existing_doc:
+            expires_at = _normalize_utc(incident.get("diagnosis_lease_expires_at"))
+            # If not actively held by an unexpired lease, reconcile immediately
+            if incident.get("diagnosis_status") != "diagnosing" or (expires_at and expires_at < now):
+                db.incidents.update_one(
+                    {"incident_id": incident_id},
+                    {
+                        "$set": {"diagnosis_status": "diagnosed"},
+                        "$unset": {"diagnosis_lease_token": "", "diagnosis_lease_expires_at": ""},
+                    },
+                )
+                reconciled_resp = BackendDiagnosisResponseModel(**existing_doc)
+                reconciled_resp.idempotent = True
+                return reconciled_resp, False
+
+    # 2. Check for active unexpired lease held by another worker
+    if incident.get("diagnosis_status") == "diagnosing":
+        expires_at = _normalize_utc(incident.get("diagnosis_lease_expires_at"))
+        if expires_at and expires_at >= now:
+            # Active lease in progress by another worker
+            # If force_recheck and existing diagnosis exists, return it, else 409
+            existing = diagnosis_service.get_latest_diagnosis(db, incident_id) if force_recheck else None
+            if existing:
+                existing.idempotent = True
+                return existing, False
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Diagnosis is currently in progress by another worker.",
+            )
+
+    # 3. Atomic Lease Acquisition via find_one_and_update
+    lease_token = f"lease_{uuid4().hex[:12]}"
+    lease_expires_at = now + timedelta(seconds=lease_timeout_seconds)
+
+    lease_query: Dict[str, Any] = {
+        "incident_id": incident_id,
+        "$or": [
+            {"diagnosis_status": "pending"},
+            {"diagnosis_status": {"$exists": False}},
+            {"diagnosis_status": {"$in": ["failed", "unverified"]}},
+            {
+                "diagnosis_status": "diagnosing",
+                "diagnosis_lease_expires_at": {"$lt": now},
+            },
+        ],
+    }
+    if force_recheck:
+        lease_query["$or"].append({"diagnosis_status": "diagnosed"})
+
+    lease_update = {
+        "$set": {
+            "diagnosis_status": "diagnosing",
+            "diagnosis_lease_token": lease_token,
+            "diagnosis_lease_expires_at": lease_expires_at,
+        }
+    }
+
+    acquired_inc = db.incidents.find_one_and_update(
+        lease_query,
+        lease_update,
+        return_document=ReturnDocument.AFTER,
     )
 
-    repo = MongoIncidentRepository(db)
+    if acquired_inc is None:
+        # Failed to acquire lease (race condition with concurrent request)
+        current_inc = db.incidents.find_one({"incident_id": incident_id})
+        if current_inc and current_inc.get("diagnosis_status") == "diagnosed" and not force_recheck:
+            existing = diagnosis_service.get_latest_diagnosis(db, incident_id)
+            if existing:
+                existing.idempotent = True
+                return existing, False
 
-    # Run AI diagnosis orchestrator
-    ai_resp = diagnose_error(
-        request=req,
-        auth_context=auth,
-        repository=repo,
-        threshold=threshold,
-        disable_external_inference=disable_external_inference,
-    )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Diagnosis is currently in progress by another worker.",
+        )
 
-    # Map AI response to backend diagnosis schema
-    backend_payload = map_ai_response_to_backend_diagnosis(ai_resp, incident_id)
+    # 4. Execute AI Diagnosis with Ownership-Aware Cleanup
+    try:
+        run = None
+        event_id = acquired_inc.get("event_id")
+        if event_id:
+            run = db.command_runs.find_one({"event_id": event_id}, {"_id": 0})
 
-    # Persist via diagnosis service (which handles idempotency, updates status, etc.)
-    diagnosis_resp, is_new = diagnosis_service.create_diagnosis(
-        db=db,
-        incident_id=incident_id,
-        payload=backend_payload,
-    )
+        req, auth = build_ai_diagnosis_payloads(
+            incident=acquired_inc,
+            run=run,
+            allow_cross_project=allow_cross_project,
+            has_cross_project_read=has_cross_project_read,
+        )
 
-    return diagnosis_resp, is_new
+        repo = MongoIncidentRepository(db)
+
+        # Run AI diagnosis orchestrator
+        ai_resp = diagnose_error(
+            request=req,
+            auth_context=auth,
+            repository=repo,
+            threshold=threshold,
+            disable_external_inference=disable_external_inference,
+        )
+
+        # Map AI response to backend diagnosis schema
+        backend_payload = map_ai_response_to_backend_diagnosis(ai_resp, incident_id)
+
+        # Stale Worker Protection: Verify lease token is still active before writing
+        verify_inc = db.incidents.find_one({"incident_id": incident_id})
+        if verify_inc and verify_inc.get("diagnosis_lease_token") != lease_token:
+            # Lease expired and was acquired by another worker!
+            # Do NOT write diagnosis or change status.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Diagnosis lease expired or ownership changed prior to persistence.",
+            )
+
+        # Persist diagnosis and update status using lease_token
+        diagnosis_resp, is_new = diagnosis_service.create_diagnosis(
+            db=db,
+            incident_id=incident_id,
+            payload=backend_payload,
+            lease_token=lease_token,
+        )
+
+        return diagnosis_resp, is_new
+
+    except Exception as exc:
+        # Conditional, ownership-aware lease rollback:
+        # Only reset to 'pending' if the lease token still matches our token!
+        # Do not overwrite if another worker already took ownership!
+        if not (isinstance(exc, HTTPException) and exc.status_code == status.HTTP_409_CONFLICT):
+            db.incidents.update_one(
+                {
+                    "incident_id": incident_id,
+                    "diagnosis_lease_token": lease_token,
+                },
+                {
+                    "$set": {"diagnosis_status": "pending"},
+                    "$unset": {
+                        "diagnosis_lease_token": "",
+                        "diagnosis_lease_expires_at": "",
+                    },
+                },
+            )
+        raise
 
 
 def check_groq_provider_readiness() -> Dict[str, Any]:

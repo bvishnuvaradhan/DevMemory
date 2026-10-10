@@ -97,6 +97,7 @@ async def diagnose_incident_endpoint(
     allow_cross_project: bool = Query(default=True, description="Allow searching public cross-project precedents"),
     has_cross_project_read: bool = Query(default=False, description="Server permission for cross-project read"),
     disable_external_inference: Optional[bool] = Query(default=None, description="Force offline inference"),
+    force_recheck: bool = Query(default=False, description="Force a new diagnosis even if one already exists"),
     db: Database = Depends(get_database),
 ):
     diagnosis, is_new = ai_service.generate_and_store_incident_diagnosis(
@@ -105,6 +106,7 @@ async def diagnose_incident_endpoint(
         allow_cross_project=allow_cross_project,
         has_cross_project_read=has_cross_project_read,
         disable_external_inference=disable_external_inference,
+        force_recheck=force_recheck,
     )
     response.status_code = status.HTTP_201_CREATED if is_new else status.HTTP_200_OK
     return ResponseEnvelope[DiagnosisResponse](success=True, data=diagnosis, error=None)

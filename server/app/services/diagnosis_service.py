@@ -16,8 +16,15 @@ def create_diagnosis(
     db: Database,
     incident_id: str,
     payload: DiagnosisCreate,
+    lease_token: Optional[str] = None,
 ) -> tuple[DiagnosisResponse, bool]:
     """Store a structured AI diagnosis linked to an existing incident.
+
+    Args:
+        db: MongoDB database handle.
+        incident_id: Incident identifier.
+        payload: Diagnosis creation schema.
+        lease_token: Optional active lease token for ownership-verified status update.
 
     Returns:
         (DiagnosisResponse, is_new: bool)
@@ -67,10 +74,20 @@ def create_diagnosis(
             return resp, False
         raise
 
-    # Update incident diagnosis status
+    # 4. Update incident diagnosis status with ownership protection
+    update_filter: dict = {"incident_id": incident_id}
+    if lease_token:
+        update_filter["diagnosis_lease_token"] = lease_token
+
     db.incidents.update_one(
-        {"incident_id": incident_id},
-        {"$set": {"diagnosis_status": "diagnosed"}},
+        update_filter,
+        {
+            "$set": {"diagnosis_status": "diagnosed"},
+            "$unset": {
+                "diagnosis_lease_token": "",
+                "diagnosis_lease_expires_at": "",
+            },
+        },
     )
 
     resp = DiagnosisResponse(**doc)
@@ -82,7 +99,7 @@ def get_latest_diagnosis(
     db: Database,
     incident_id: str,
 ) -> Optional[DiagnosisResponse]:
-    """Retrieve the most recent diagnosis for an incident."""
+    """Retrieve the most recent diagnosis for an incident with automatic self-healing status reconciliation."""
     incident = db.incidents.find_one({"incident_id": incident_id})
     if not incident:
         raise HTTPException(
@@ -97,6 +114,18 @@ def get_latest_diagnosis(
     )
     if not doc:
         return None
+
+    # Self-healing reconciliation: if a diagnosis exists but incident status is not 'diagnosed',
+    # reconcile incident diagnosis_status to 'diagnosed'
+    if incident.get("diagnosis_status") != "diagnosed":
+        db.incidents.update_one(
+            {"incident_id": incident_id},
+            {
+                "$set": {"diagnosis_status": "diagnosed"},
+                "$unset": {"diagnosis_lease_token": "", "diagnosis_lease_expires_at": ""},
+            },
+        )
+
     return DiagnosisResponse(**doc)
 
 
