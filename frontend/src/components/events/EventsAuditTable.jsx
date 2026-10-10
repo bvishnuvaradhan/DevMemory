@@ -143,6 +143,7 @@ export default function EventsAuditTable({
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [selectedProject, setSelectedProject] = useState(scopedProjectId || 'ALL');
   const [sortOrder, setSortOrder] = useState('NEWEST'); // 'NEWEST' | 'OLDEST'
+  const [selectedEventModal, setSelectedEventModal] = useState(null);
   const navigate = useNavigate();
 
   // Escape key closes details modal

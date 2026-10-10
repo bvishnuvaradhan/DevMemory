@@ -38,7 +38,7 @@ export default function EventsHistory() {
   }
 
   return (
-    <div className="space-y-6 p-6 max-w-7xl mx-auto">
+    <div className="space-y-6 p-3 sm:p-6 max-w-7xl mx-auto">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

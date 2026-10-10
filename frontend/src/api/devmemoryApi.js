@@ -23,16 +23,65 @@ const FORCE_MOCK = import.meta.env?.VITE_USE_MOCK_DATA === 'true';
 
 let isBackendLive = false;
 
+/**
+ * Safely requests a DevMemory backend API endpoint.
+ * - Confirms response.ok before attempting to parse or treat as successful
+ * - Handles HTTP 500, 502, 504, 404, network connection refused, or timeouts gracefully
+ * - Retains clean diagnostic warning logs without exposing sensitive information
+ * - Sets isBackendLive state accurately
+ * - Ensures mock fallback data is activated without crashing React views
+ */
+async function safeApiFetch(endpoint, options = {}) {
+  if (FORCE_MOCK) {
+    return { ok: false, data: null, status: null, isMock: true };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+
+    const res = await fetch(`${BASE_URL}${endpoint}`, {
+      ...options,
+      signal: options.signal || controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      console.warn(
+        `[DevMemory API] HTTP ${res.status} (${res.statusText || 'Error'}) from ${endpoint}. Gracefully falling back to demonstration dataset.`
+      );
+      isBackendLive = false;
+      return { ok: false, data: null, status: res.status, isMock: true };
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      console.warn(
+        `[DevMemory API] Non-JSON payload received from ${endpoint} (Content-Type: ${contentType}). Falling back to demonstration dataset.`
+      );
+      isBackendLive = false;
+      return { ok: false, data: null, status: res.status, isMock: true };
+    }
+
+    const data = await res.json();
+    isBackendLive = true;
+    return { ok: true, data, status: res.status, isMock: false };
+  } catch (err) {
+    const reason = err.name === 'AbortError' ? 'Request timed out after 3.5s' : err.message;
+    console.warn(
+      `[DevMemory API] Network request to ${endpoint} failed (${reason}). Falling back to demonstration dataset.`
+    );
+    isBackendLive = false;
+    return { ok: false, data: null, status: null, isMock: true, error: reason };
+  }
+}
+
 export async function checkBackendHealth() {
   if (FORCE_MOCK) return false;
-  try {
-    const res = await fetch(`${BASE_URL}/health`, { method: 'GET', signal: AbortSignal.timeout(2000) });
-    isBackendLive = res.ok;
-    return isBackendLive;
-  } catch {
-    isBackendLive = false;
-    return false;
-  }
+  const result = await safeApiFetch('/health');
+  isBackendLive = Boolean(result.ok);
+  return isBackendLive;
 }
 
 export function getIsUsingMockData() {
@@ -140,27 +189,26 @@ export function normalizeEvent(evt) {
 }
 
 export async function fetchGlobalOverview() {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/analytics/overview`);
-      if (res.ok) {
-        const raw = await res.json();
-        isBackendLive = true;
-        const normalized = {
-          stats: raw.stats || raw,
-          projects: Array.isArray(raw.projects) ? raw.projects.map(normalizeProject) : [],
-          recentRuns: Array.isArray(raw.recentRuns || raw.recent_runs)
-            ? (raw.recentRuns || raw.recent_runs).map(normalizeRun)
-            : [],
-          recurringErrors: raw.recurringErrors || raw.recurring_errors || [],
-          verifiedFixes: raw.verifiedFixes || raw.verified_fixes || [],
-          performanceTrend: raw.performanceTrend || raw.performance_trend || [],
-        };
-        return { data: normalized, isMock: false };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Backend unreachable, using demonstration dataset:', err.message);
+  const result = await safeApiFetch('/analytics/overview');
+  if (result.ok && result.data) {
+    const raw = result.data;
+    const normalized = {
+      stats: raw.stats || raw,
+      projects: Array.isArray(raw.projects) ? raw.projects.map(normalizeProject) : [],
+      recentRuns: Array.isArray(raw.recentRuns || raw.recent_runs)
+        ? (raw.recentRuns || raw.recent_runs).map(normalizeRun)
+        : [],
+      recurringErrors: Array.isArray(raw.recurringErrors || raw.recurring_errors)
+        ? (raw.recurringErrors || raw.recurring_errors)
+        : [],
+      verifiedFixes: Array.isArray(raw.verifiedFixes || raw.verified_fixes)
+        ? (raw.verifiedFixes || raw.verified_fixes)
+        : [],
+      performanceTrend: Array.isArray(raw.performanceTrend || raw.performance_trend)
+        ? (raw.performanceTrend || raw.performance_trend)
+        : [],
+    };
+    return { data: normalized, isMock: false };
   }
 
   return {
@@ -177,35 +225,21 @@ export async function fetchGlobalOverview() {
 }
 
 export async function fetchProjects() {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/projects`);
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          data: Array.isArray(data) ? data.map(normalizeProject) : [],
-          isMock: false,
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock projects:', err.message);
+  const result = await safeApiFetch('/projects');
+  if (result.ok && Array.isArray(result.data)) {
+    return {
+      data: result.data.map(normalizeProject),
+      isMock: false,
+    };
   }
 
   return { data: MOCK_PROJECTS.map(normalizeProject), isMock: true };
 }
 
 export async function fetchProject(projectId) {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/projects/${projectId}`);
-      if (res.ok) {
-        const data = await res.json();
-        return { data: normalizeProject(data), isMock: false };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock project:', err.message);
+  const result = await safeApiFetch(`/projects/${projectId}`);
+  if (result.ok && result.data) {
+    return { data: normalizeProject(result.data), isMock: false };
   }
 
   const proj = MOCK_PROJECTS.find((p) => p.id === projectId) || MOCK_PROJECTS[0];
@@ -213,19 +247,12 @@ export async function fetchProject(projectId) {
 }
 
 export async function fetchProjectRuns(projectId) {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/projects/${projectId}/runs`);
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          data: Array.isArray(data) ? data.map(normalizeRun) : [],
-          isMock: false,
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock project runs:', err.message);
+  const result = await safeApiFetch(`/projects/${projectId}/runs`);
+  if (result.ok && Array.isArray(result.data)) {
+    return {
+      data: result.data.map(normalizeRun),
+      isMock: false,
+    };
   }
 
   const runs = MOCK_RECENT_RUNS.filter((r) => r.projectId === projectId);
@@ -234,19 +261,12 @@ export async function fetchProjectRuns(projectId) {
 }
 
 export async function fetchProjectIncidents(projectId) {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/projects/${projectId}/incidents`);
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          data: Array.isArray(data) ? data.map(normalizeIncident) : [],
-          isMock: false,
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock incidents:', err.message);
+  const result = await safeApiFetch(`/projects/${projectId}/incidents`);
+  if (result.ok && Array.isArray(result.data)) {
+    return {
+      data: result.data.map(normalizeIncident),
+      isMock: false,
+    };
   }
 
   const incidents = projectId
@@ -257,16 +277,9 @@ export async function fetchProjectIncidents(projectId) {
 }
 
 export async function fetchIncident(incidentId) {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/incidents/${incidentId}`);
-      if (res.ok) {
-        const data = await res.json();
-        return { data: normalizeIncident(data), isMock: false };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock incident detail:', err.message);
+  const result = await safeApiFetch(`/incidents/${incidentId}`);
+  if (result.ok && result.data) {
+    return { data: normalizeIncident(result.data), isMock: false };
   }
 
   const incident = MOCK_INCIDENTS.find((i) => i.incidentId === incidentId) || MOCK_INCIDENTS[0];
@@ -274,16 +287,9 @@ export async function fetchIncident(incidentId) {
 }
 
 export async function fetchProjectPerformance(projectId) {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/projects/${projectId}/performance`);
-      if (res.ok) {
-        const data = await res.json();
-        return { data: normalizePerformance(data), isMock: false };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock performance:', err.message);
+  const result = await safeApiFetch(`/projects/${projectId}/performance`);
+  if (result.ok && result.data) {
+    return { data: normalizePerformance(result.data), isMock: false };
   }
 
   const perf = MOCK_PERFORMANCE_BY_PROJECT[projectId] || {
@@ -299,19 +305,12 @@ export async function fetchProjectPerformance(projectId) {
 }
 
 export async function fetchGlobalEvents() {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/events`);
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          data: Array.isArray(data) ? data.map(normalizeEvent) : [],
-          isMock: false,
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock global events:', err.message);
+  const result = await safeApiFetch('/events');
+  if (result.ok && Array.isArray(result.data)) {
+    return {
+      data: result.data.map(normalizeEvent),
+      isMock: false,
+    };
   }
 
   return {
@@ -321,19 +320,12 @@ export async function fetchGlobalEvents() {
 }
 
 export async function fetchProjectEvents(projectId) {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/projects/${projectId}/events`);
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          data: Array.isArray(data) ? data.map(normalizeEvent) : [],
-          isMock: false,
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock project events:', err.message);
+  const result = await safeApiFetch(`/projects/${projectId}/events`);
+  if (result.ok && Array.isArray(result.data)) {
+    return {
+      data: result.data.map(normalizeEvent),
+      isMock: false,
+    };
   }
 
   const events = projectId
@@ -347,19 +339,12 @@ export async function fetchProjectEvents(projectId) {
 }
 
 export async function fetchAllRuns() {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/runs`);
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          data: Array.isArray(data) ? data.map(normalizeRun) : [],
-          isMock: false,
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock runs:', err.message);
+  const result = await safeApiFetch('/runs');
+  if (result.ok && Array.isArray(result.data)) {
+    return {
+      data: result.data.map(normalizeRun),
+      isMock: false,
+    };
   }
 
   return {
@@ -369,19 +354,12 @@ export async function fetchAllRuns() {
 }
 
 export async function fetchAllIncidents() {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/incidents`);
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          data: Array.isArray(data) ? data.map(normalizeIncident) : [],
-          isMock: false,
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock all incidents:', err.message);
+  const result = await safeApiFetch('/incidents');
+  if (result.ok && Array.isArray(result.data)) {
+    return {
+      data: result.data.map(normalizeIncident),
+      isMock: false,
+    };
   }
 
   return {
@@ -391,16 +369,9 @@ export async function fetchAllIncidents() {
 }
 
 export async function fetchAllFixes() {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/fixes`);
-      if (res.ok) {
-        const data = await res.json();
-        return { data: Array.isArray(data) ? data : [], isMock: false };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock fixes:', err.message);
+  const result = await safeApiFetch('/fixes');
+  if (result.ok && Array.isArray(result.data)) {
+    return { data: result.data, isMock: false };
   }
 
   const combinedFixes = [
@@ -480,16 +451,9 @@ export async function fetchAllFixes() {
 }
 
 export async function fetchAllPerformance() {
-  try {
-    if (!FORCE_MOCK) {
-      const res = await fetch(`${BASE_URL}/analytics/performance`);
-      if (res.ok) {
-        const data = await res.json();
-        return { data, isMock: false };
-      }
-    }
-  } catch (err) {
-    console.warn('[DevMemory API] Falling back to mock performance:', err.message);
+  const result = await safeApiFetch('/analytics/performance');
+  if (result.ok && result.data) {
+    return { data: result.data, isMock: false };
   }
 
   return {
