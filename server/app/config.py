@@ -89,6 +89,28 @@ class Settings(BaseSettings):
         description="Minimum number of successful observations required to calculate a baseline",
     )
 
+    # OpenAI & Embedding Provider Configuration
+    OPENAI_API_KEY: Optional[str] = Field(
+        default=None,
+        description="OpenAI API key for dense embedding generation",
+    )
+    OPENAI_EMBEDDING_MODEL: str = Field(
+        default="text-embedding-3-small",
+        description="OpenAI embedding model identifier",
+    )
+    DEVMEMORY_EMBEDDING_PROVIDER: Optional[str] = Field(
+        default=None,
+        description="Configured embedding provider: auto, dense, or deterministic",
+    )
+    DEVMEMORY_VECTOR_DIMENSION: Optional[int] = Field(
+        default=None,
+        description="Configured vector dimension (1536 for text-embedding-3-small, 128 for deterministic)",
+    )
+    MONGODB_VECTOR_FIELD: str = Field(
+        default="embedding",
+        description="Document field where embedding vector is persisted",
+    )
+
     def model_post_init(self, __context: Any) -> None:
         """Synchronize configuration to os.environ if not already present, preserving precedence."""
         if self.GROQ_API_KEY and not os.getenv("GROQ_API_KEY"):
@@ -97,6 +119,16 @@ class Settings(BaseSettings):
             os.environ["GROQ_MODEL"] = self.GROQ_MODEL
         if self.GROQ_TIMEOUT_SECONDS and not os.getenv("GROQ_TIMEOUT_SECONDS"):
             os.environ["GROQ_TIMEOUT_SECONDS"] = str(self.GROQ_TIMEOUT_SECONDS)
+        if self.OPENAI_API_KEY and not os.getenv("OPENAI_API_KEY"):
+            os.environ["OPENAI_API_KEY"] = self.OPENAI_API_KEY
+        if self.OPENAI_EMBEDDING_MODEL and not os.getenv("OPENAI_EMBEDDING_MODEL"):
+            os.environ["OPENAI_EMBEDDING_MODEL"] = self.OPENAI_EMBEDDING_MODEL
+        if self.DEVMEMORY_EMBEDDING_PROVIDER and not os.getenv("DEVMEMORY_EMBEDDING_PROVIDER"):
+            os.environ["DEVMEMORY_EMBEDDING_PROVIDER"] = self.DEVMEMORY_EMBEDDING_PROVIDER
+        if self.DEVMEMORY_VECTOR_DIMENSION is not None and not os.getenv("DEVMEMORY_VECTOR_DIMENSION"):
+            os.environ["DEVMEMORY_VECTOR_DIMENSION"] = str(self.DEVMEMORY_VECTOR_DIMENSION)
+        if self.MONGODB_VECTOR_FIELD and not os.getenv("MONGODB_VECTOR_FIELD"):
+            os.environ["MONGODB_VECTOR_FIELD"] = self.MONGODB_VECTOR_FIELD
 
 
 @lru_cache

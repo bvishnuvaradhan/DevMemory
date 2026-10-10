@@ -8,12 +8,49 @@ from app.db.mongo import get_database
 from app.schemas.analytics import IncidentHistoryResponse
 from app.schemas.diagnosis import DiagnosisCreate, DiagnosisResponse
 from app.schemas.fix import FixOutcomeCreate, FixOutcomeResponse
-from app.schemas.incident import IncidentCreate, IncidentResponse
+from app.schemas.incident import (
+    EmbeddingBackfillResponse,
+    EmbeddingProviderStatusResponse,
+    IncidentCreate,
+    IncidentEmbeddingResponse,
+    IncidentResponse,
+)
 from app.schemas.pagination import PaginatedResponse
 from app.schemas import ResponseEnvelope
-from app.services import ai_service, analytics_service, diagnosis_service, fix_service, incident_service
+from app.services import (
+    ai_service,
+    analytics_service,
+    diagnosis_service,
+    embedding_service,
+    fix_service,
+    incident_service,
+)
 
 router = APIRouter(prefix="/incidents", tags=["Incidents"])
+
+
+@router.get(
+    "/embedding-provider/readiness",
+    response_model=ResponseEnvelope[EmbeddingProviderStatusResponse],
+    summary="Check embedding provider configuration and readiness safely",
+)
+async def get_embedding_provider_readiness_endpoint():
+    status_resp = embedding_service.check_embedding_provider_readiness()
+    return ResponseEnvelope[EmbeddingProviderStatusResponse](success=True, data=status_resp, error=None)
+
+
+@router.post(
+    "/backfill-embeddings",
+    response_model=ResponseEnvelope[EmbeddingBackfillResponse],
+    summary="Idempotently backfill embeddings for stored incidents missing vectors",
+)
+async def backfill_embeddings_endpoint(
+    project_id: Optional[str] = Query(default=None, description="Scope backfill to specific project"),
+    force: bool = Query(default=False, description="Force re-embedding existing documents"),
+    db: Database = Depends(get_database),
+):
+    summary = embedding_service.backfill_incident_embeddings(db, project_id=project_id, force=force)
+    return ResponseEnvelope[EmbeddingBackfillResponse](success=True, data=summary, error=None)
 
 
 @router.post(
@@ -189,3 +226,43 @@ async def list_fixes_endpoint(
     return ResponseEnvelope[PaginatedResponse[FixOutcomeResponse]](
         success=True, data=fixes, error=None
     )
+
+
+# --- Incident Embedding Endpoints ---
+
+
+@router.get(
+    "/{incident_id}/embedding",
+    response_model=ResponseEnvelope[IncidentEmbeddingResponse],
+    summary="Retrieve persisted embedding vector and metadata for an incident",
+)
+async def get_incident_embedding_endpoint(
+    incident_id: str,
+    db: Database = Depends(get_database),
+):
+    emb = embedding_service.get_incident_embedding(db, incident_id=incident_id)
+    if not emb:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No embedding found for incident '{incident_id}'.",
+        )
+    return ResponseEnvelope[IncidentEmbeddingResponse](success=True, data=emb, error=None)
+
+
+@router.post(
+    "/{incident_id}/embed",
+    response_model=ResponseEnvelope[IncidentEmbeddingResponse],
+    summary="Generate and persist embedding vector for an incident",
+)
+async def embed_incident_endpoint(
+    incident_id: str,
+    force: bool = Query(default=False, description="Force regenerate if embedding exists"),
+    db: Database = Depends(get_database),
+):
+    emb = embedding_service.generate_and_persist_incident_embedding(db, incident_id=incident_id, force=force)
+    if not emb:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident with ID '{incident_id}' not found.",
+        )
+    return ResponseEnvelope[IncidentEmbeddingResponse](success=True, data=emb, error=None)

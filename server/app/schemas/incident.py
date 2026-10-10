@@ -33,3 +33,48 @@ class IncidentResponse(BaseModel):
     source_snippet: Optional[str] = None
     diagnosis_status: str = "pending"
     created_at: datetime
+    # Embedding metadata (optional for backward compatibility)
+    embedding: Optional[list[float]] = None
+    embedding_model: Optional[str] = None
+    embedding_dimension: Optional[int] = None
+    embedding_status: Optional[str] = None
+    embedding_is_fallback: Optional[bool] = None
+    embedded_at: Optional[datetime] = None
+
+
+class IncidentEmbeddingResponse(BaseModel):
+    """Schema for incident embedding metadata and vector response."""
+
+    incident_id: str
+    project_id: str
+    embedding: list[float]
+    embedding_model: str
+    embedding_dimension: int
+    embedding_status: str
+    embedding_is_fallback: bool
+    canonical_text: Optional[str] = None
+    embedded_at: Optional[datetime] = None
+
+
+class EmbeddingBackfillResponse(BaseModel):
+    """Schema for embedding backfill execution summary."""
+
+    total_scanned: int
+    updated: int
+    skipped: int
+    failed: int
+    embedding_model: str
+    embedding_dimension: int
+
+
+class EmbeddingProviderStatusResponse(BaseModel):
+    """Schema for embedding provider readiness check."""
+
+    provider_type: str
+    configured_model: str
+    target_dimension: int
+    credentials_configured: bool
+    status: str
+    is_live: bool
+    reason: Optional[str] = None
+    masked_credential: Optional[str] = None

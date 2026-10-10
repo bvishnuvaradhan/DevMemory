@@ -46,6 +46,16 @@ INCIDENTS_VALIDATOR = {
             "error_message": {"bsonType": "string"},
             "error_signature": {"bsonType": "string"},
             "created_at": {"bsonType": "date"},
+            "embedding": {
+                "bsonType": "array",
+                "items": {"bsonType": ["double", "int"]},
+            },
+            "embedding_model": {"bsonType": "string"},
+            "embedding_dimension": {"bsonType": "int"},
+            "embedding_status": {"bsonType": "string"},
+            "embedding_is_fallback": {"bsonType": "bool"},
+            "embedding_canonical_text": {"bsonType": "string"},
+            "embedded_at": {"bsonType": "date"},
         },
     }
 }

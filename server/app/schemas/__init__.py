@@ -22,7 +22,13 @@ from app.schemas.fix import (
     FixOutcomeUpdate,
     FixStatus,
 )
-from app.schemas.incident import IncidentCreate, IncidentResponse
+from app.schemas.incident import (
+    IncidentCreate,
+    IncidentResponse,
+    IncidentEmbeddingResponse,
+    EmbeddingBackfillResponse,
+    EmbeddingProviderStatusResponse,
+)
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.performance import (
     BaselineCalculationRequest,
@@ -66,6 +72,9 @@ __all__ = [
     "ErrorContext",
     "IncidentCreate",
     "IncidentResponse",
+    "IncidentEmbeddingResponse",
+    "EmbeddingBackfillResponse",
+    "EmbeddingProviderStatusResponse",
     "RecurringErrorItem",
     "RecurringErrorsResponse",
     "ProjectAnalyticsResponse",

@@ -44,6 +44,36 @@ def create_or_get_incident(
         "created_at": now,
     }
 
+    # Automatically compute and attach embedding vector if possible (fault-tolerant)
+    try:
+        import os
+        from app.config import get_settings
+        from app.services.embedding_service import generate_incident_embedding, resolve_target_dimension
+
+        settings = get_settings()
+        v_field = os.getenv("MONGODB_VECTOR_FIELD") or settings.MONGODB_VECTOR_FIELD or "embedding"
+        target_dim = resolve_target_dimension()
+        emb_res = generate_incident_embedding(
+            error_message=error_message,
+            stack_trace=source_snippet,
+            command=None,
+            expected_dimension=target_dim,
+        )
+        status_str = (
+            emb_res.status.value
+            if hasattr(emb_res.status, "value")
+            else str(emb_res.status)
+        )
+        doc[v_field] = emb_res.vector
+        doc["embedding_model"] = emb_res.model
+        doc["embedding_dimension"] = emb_res.dimension
+        doc["embedding_status"] = status_str
+        doc["embedding_is_fallback"] = bool(emb_res.is_fallback)
+        doc["embedded_at"] = now
+    except Exception:
+        # Fault isolation: embedding generation failure must not prevent incident creation
+        pass
+
     try:
         db.incidents.insert_one(doc)
     except DuplicateKeyError:
@@ -58,20 +88,7 @@ def create_or_get_incident(
             return IncidentResponse(**existing_by_id)
         raise
 
-    return IncidentResponse(
-        incident_id=incident_id,
-        event_id=event_id,
-        project_id=project_id,
-        error_type=error_type,
-        error_message=error_message,
-        error_signature=signature,
-        file_path=file_path,
-        line=line,
-        column=column,
-        source_snippet=source_snippet,
-        diagnosis_status="pending",
-        created_at=now,
-    )
+    return IncidentResponse(**doc)
 
 
 def create_incident_direct(db: Database, payload: IncidentCreate) -> IncidentResponse:
