@@ -102,25 +102,25 @@ export default function ProjectWorkspace() {
   return (
     <div className="space-y-6 p-6 max-w-7xl mx-auto">
       {/* Top Breadcrumb */}
-      <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
-        <Link to="/" className="hover:text-slate-200 flex items-center gap-1">
+      <div className="flex items-center gap-2 text-xs font-mono text-slate-500">
+        <Link to="/" className="hover:text-slate-900 flex items-center gap-1 transition-colors">
           <ArrowLeft className="h-3 w-3" />
           <span>Global Dashboard</span>
         </Link>
         <span>/</span>
-        <span className="text-brand-400 font-semibold">{project?.name}</span>
+        <span className="text-brand-600 font-semibold">{project?.name}</span>
       </div>
 
       {/* Workspace Header */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
+      <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-6 shadow-glass">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-800 text-brand-400 border border-slate-700/80 shrink-0">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-600 border border-indigo-100 shadow-xs shrink-0">
               <FolderGit2 className="h-6 w-6" />
             </div>
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-xl font-bold text-white font-mono">{project?.name}</h1>
+                <h1 className="text-xl font-bold text-slate-900 font-mono">{project?.name}</h1>
                 <Badge
                   variant={project?.lastRunStatus === 'success' ? 'success' : 'danger'}
                   dot
@@ -129,17 +129,17 @@ export default function ProjectWorkspace() {
                   {project?.lastRunStatus === 'success' ? 'Passing' : 'Failed'}
                 </Badge>
               </div>
-              <p className="mt-1 text-xs text-slate-400">{project?.description}</p>
+              <p className="mt-1 text-xs text-slate-500">{project?.description}</p>
               <div className="mt-2.5 flex items-center gap-2">
-                <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-mono text-slate-300">
+                <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-[10px] font-mono text-slate-700 border border-slate-200/80 font-medium">
                   {project?.language}
                 </span>
-                <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-mono text-slate-400">
+                <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-[10px] font-mono text-slate-500 border border-slate-200/80">
                   {project?.framework}
                 </span>
                 {project?.repository && (
-                  <span className="flex items-center gap-1 text-[10px] font-mono text-slate-400">
-                    <ExternalLink className="h-3 w-3" />
+                  <span className="flex items-center gap-1 text-[10px] font-mono text-slate-500">
+                    <ExternalLink className="h-3 w-3 text-slate-400" />
                     {project?.repository}
                   </span>
                 )}
@@ -147,16 +147,16 @@ export default function ProjectWorkspace() {
             </div>
           </div>
 
-          <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-800 text-xs font-mono">
-            <span className="text-slate-400">Median Benchmark:</span>
-            <span className="text-sm font-bold text-white mt-0.5">
+          <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100 text-xs font-mono">
+            <span className="text-slate-500">Median Benchmark:</span>
+            <span className="text-sm font-bold text-slate-900 mt-0.5">
               {project?.medianDurationMs ?? 0}ms
             </span>
           </div>
         </div>
 
         {/* Tab Bar */}
-        <div className="mt-6 flex border-b border-slate-800 gap-1 overflow-x-auto">
+        <div className="mt-6 flex border-b border-slate-200 gap-1 overflow-x-auto">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -166,18 +166,18 @@ export default function ProjectWorkspace() {
                 onClick={() => handleTabChange(tab.id)}
                 className={`flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap ${
                   isActive
-                    ? 'border-brand-500 text-brand-300 bg-brand-500/5'
-                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                    ? 'border-brand-500 text-brand-600 bg-brand-50/60 font-semibold rounded-t-lg'
+                    : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" />
                 <span>{tab.label}</span>
                 {tab.count !== undefined && tab.count > 0 && (
                   <span
-                    className={`rounded-full px-1.5 py-0.2 text-[10px] font-mono ${
+                    className={`rounded-full px-2 py-0.2 text-[10px] font-mono font-semibold ${
                       tab.id === 'errors'
-                        ? 'bg-rose-500/20 text-rose-300'
-                        : 'bg-slate-800 text-slate-300'
+                        ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                        : 'bg-slate-100 text-slate-700 border border-slate-200'
                     }`}
                   >
                     {tab.count}
@@ -193,30 +193,30 @@ export default function ProjectWorkspace() {
       {activeTab === 'overview' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-              <span className="text-[10px] uppercase font-mono text-slate-500">Total Runs</span>
-              <p className="mt-1 text-2xl font-bold font-mono text-white">{project?.totalRuns}</p>
+            <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-5 shadow-glass">
+              <span className="text-[10px] uppercase font-mono text-slate-400 font-semibold">Total Runs</span>
+              <p className="mt-1 text-2xl font-bold font-mono text-slate-900">{project?.totalRuns}</p>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-              <span className="text-[10px] uppercase font-mono text-slate-500">Failures</span>
-              <p className="mt-1 text-2xl font-bold font-mono text-rose-400">{project?.failureCount}</p>
+            <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-5 shadow-glass">
+              <span className="text-[10px] uppercase font-mono text-slate-400 font-semibold">Failures</span>
+              <p className="mt-1 text-2xl font-bold font-mono text-rose-600">{project?.failureCount}</p>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-              <span className="text-[10px] uppercase font-mono text-slate-500">Verified Fixes</span>
-              <p className="mt-1 text-2xl font-bold font-mono text-emerald-400">{project?.verifiedFixCount}</p>
+            <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-5 shadow-glass">
+              <span className="text-[10px] uppercase font-mono text-slate-400 font-semibold">Verified Fixes</span>
+              <p className="mt-1 text-2xl font-bold font-mono text-emerald-600">{project?.verifiedFixCount}</p>
             </div>
           </div>
 
           {incidents.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-white font-mono flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-rose-400" />
+                <h3 className="text-sm font-semibold text-slate-900 font-mono flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-rose-500" />
                   Active Incident Deep-Dive
                 </h3>
                 <button
                   onClick={() => handleTabChange('errors')}
-                  className="text-xs font-mono text-brand-400 hover:text-brand-300 cursor-pointer"
+                  className="text-xs font-mono text-brand-600 hover:text-brand-700 cursor-pointer font-medium"
                 >
                   View all incidents →
                 </button>
@@ -229,7 +229,7 @@ export default function ProjectWorkspace() {
           )}
 
           <div>
-            <h3 className="text-sm font-semibold text-white font-mono mb-3">
+            <h3 className="text-sm font-semibold text-slate-900 font-mono mb-3">
               Command Run History
             </h3>
             <RecentRunsTable runs={runs} />
@@ -251,36 +251,36 @@ export default function ProjectWorkspace() {
       )}
 
       {activeTab === 'memory' && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 space-y-4">
-          <div className="flex items-center gap-2 text-brand-400 font-mono text-sm font-semibold">
+        <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-6 shadow-glass space-y-4">
+          <div className="flex items-center gap-2 text-indigo-600 font-mono text-sm font-semibold">
             <BrainCircuit className="h-5 w-5" />
             <span>3-Tier Troubleshooting Memory for {project?.name}</span>
           </div>
-          <p className="text-xs text-slate-400 leading-relaxed max-w-2xl">
+          <p className="text-xs text-slate-600 leading-relaxed max-w-2xl">
             DevMemory checks 3 tiers of memory when an error occurs:
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-            <div className="rounded-lg border border-slate-800 bg-slate-950 p-4 space-y-2">
-              <span className="text-[11px] font-mono font-bold text-sky-400 uppercase">
+            <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-4 space-y-2 shadow-xs">
+              <span className="text-[11px] font-mono font-bold text-sky-700 uppercase">
                 Tier 1: General Knowledge
               </span>
-              <p className="text-xs text-slate-300">
+              <p className="text-xs text-slate-700 leading-relaxed">
                 Preloaded library of common Python/JS errors, common syntax issues, and runtime exceptions.
               </p>
             </div>
-            <div className="rounded-lg border border-slate-800 bg-slate-950 p-4 space-y-2">
-              <span className="text-[11px] font-mono font-bold text-emerald-400 uppercase">
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4 space-y-2 shadow-xs">
+              <span className="text-[11px] font-mono font-bold text-emerald-700 uppercase">
                 Tier 2: Project Memory
               </span>
-              <p className="text-xs text-slate-300">
+              <p className="text-xs text-slate-700 leading-relaxed">
                 Historical diagnoses and verified fixes specific to <strong>{project?.name}</strong>.
               </p>
             </div>
-            <div className="rounded-lg border border-slate-800 bg-slate-950 p-4 space-y-2">
-              <span className="text-[11px] font-mono font-bold text-indigo-400 uppercase">
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-4 space-y-2 shadow-xs">
+              <span className="text-[11px] font-mono font-bold text-indigo-700 uppercase">
                 Tier 3: Cross-Project Memory
               </span>
-              <p className="text-xs text-slate-300">
+              <p className="text-xs text-slate-700 leading-relaxed">
                 Sanitized precedents from other services, respecting privacy and matching patterns.
               </p>
             </div>

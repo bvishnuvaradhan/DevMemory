@@ -16,14 +16,14 @@ export default function StackTraceViewer({ stackTrace }) {
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60 shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-glass">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-slate-950/80 hover:bg-slate-900/80 transition-colors text-left cursor-pointer"
+        className="w-full flex items-center justify-between px-4 py-3 bg-slate-50/90 hover:bg-slate-100/80 transition-colors text-left cursor-pointer"
       >
-        <div className="flex items-center gap-2 font-mono text-xs text-slate-300">
-          <Terminal className="h-4 w-4 text-slate-400" />
-          <span className="font-semibold text-white">Full Stack Trace</span>
+        <div className="flex items-center gap-2 font-mono text-xs text-slate-700">
+          <Terminal className="h-4 w-4 text-slate-500" />
+          <span className="font-semibold text-slate-900">Full Stack Trace</span>
           <span className="text-[10px] text-slate-500">
             ({stackTrace.split('\n').length} frames)
           </span>
@@ -34,23 +34,23 @@ export default function StackTraceViewer({ stackTrace }) {
             {isOpen ? 'Click to collapse' : 'Click to expand'}
           </span>
           {isOpen ? (
-            <ChevronDown className="h-4 w-4 text-slate-400" />
+            <ChevronDown className="h-4 w-4 text-slate-500" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-slate-400" />
+            <ChevronRight className="h-4 w-4 text-slate-500" />
           )}
         </div>
       </button>
 
       {isOpen && (
-        <div className="relative border-t border-slate-800 bg-slate-950 p-4">
+        <div className="relative border-t border-slate-200 bg-[#F8FAFC] p-4">
           <button
             onClick={handleCopy}
-            className="absolute top-3 right-3 flex items-center gap-1 rounded bg-slate-800/80 px-2 py-1 text-[10px] font-mono text-slate-300 hover:text-white hover:bg-slate-700 transition-colors cursor-pointer"
+            className="absolute top-3 right-3 flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-[10px] font-mono text-slate-700 border border-slate-200 hover:text-slate-900 hover:border-slate-300 shadow-xs transition-colors cursor-pointer"
           >
             {copied ? (
               <>
-                <Check className="h-3 w-3 text-emerald-400" />
-                <span className="text-emerald-400">Copied</span>
+                <Check className="h-3 w-3 text-emerald-600" />
+                <span className="text-emerald-600 font-semibold">Copied</span>
               </>
             ) : (
               <>
@@ -59,7 +59,7 @@ export default function StackTraceViewer({ stackTrace }) {
               </>
             )}
           </button>
-          <pre className="font-mono text-xs leading-relaxed text-rose-300/90 whitespace-pre-wrap overflow-x-auto pr-16">
+          <pre className="font-mono text-xs leading-relaxed text-rose-800/90 whitespace-pre-wrap overflow-x-auto pr-24">
             {stackTrace}
           </pre>
         </div>

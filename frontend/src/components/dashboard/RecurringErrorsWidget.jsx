@@ -4,11 +4,11 @@ import Badge from '../common/Badge';
 
 export default function RecurringErrorsWidget({ recurringErrors = [] }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+    <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-5 shadow-glass">
+      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-400" />
-          <h3 className="text-sm font-semibold text-white">Recurring Errors</h3>
+          <AlertTriangle className="h-4 w-4 text-amber-500" />
+          <h3 className="text-sm font-semibold text-slate-900 font-mono">Recurring Errors</h3>
         </div>
         <Badge variant="warning" size="xs">
           {recurringErrors.length} Detected
@@ -19,25 +19,25 @@ export default function RecurringErrorsWidget({ recurringErrors = [] }) {
         {recurringErrors.map((err, idx) => (
           <div
             key={idx}
-            className="rounded-lg border border-slate-800/80 bg-slate-950/60 p-3.5 hover:border-slate-700 transition-colors"
+            className="rounded-xl border border-slate-200/80 bg-white/90 p-3.5 hover:border-indigo-200 hover:shadow-xs transition-all"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-semibold text-rose-300">
+                  <span className="font-mono text-xs font-semibold text-rose-600">
                     {err.errorType}
                   </span>
-                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 font-medium">
                     {err.category}
                   </span>
                 </div>
-                <p className="mt-1 font-mono text-[11px] text-slate-400 line-clamp-2 bg-slate-900/60 p-1.5 rounded border border-slate-800/40">
+                <p className="mt-1.5 font-mono text-[11px] text-slate-600 line-clamp-2 bg-slate-50 p-2 rounded-lg border border-slate-200/70">
                   {err.sampleMessage}
                 </p>
               </div>
 
               <div className="flex flex-col items-end shrink-0">
-                <span className="flex items-center gap-1 font-mono text-xs font-bold text-amber-400">
+                <span className="flex items-center gap-1 font-mono text-xs font-bold text-amber-600">
                   <Repeat className="h-3 w-3" />
                   {err.occurrences}x
                 </span>
@@ -45,12 +45,12 @@ export default function RecurringErrorsWidget({ recurringErrors = [] }) {
               </div>
             </div>
 
-            <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-900 text-[10px] text-slate-500 font-mono">
+            <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100 text-[10px] text-slate-500 font-mono">
               <div className="flex items-center gap-1.5">
                 <Layers className="h-3 w-3 text-slate-400" />
                 <span>Projects:</span>
                 {err.affectedProjects.map((p, i) => (
-                  <span key={i} className="text-slate-300 bg-slate-800/60 px-1.5 py-0.5 rounded">
+                  <span key={i} className="text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200/60 font-medium">
                     {p}
                   </span>
                 ))}

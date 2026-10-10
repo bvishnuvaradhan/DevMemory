@@ -13,27 +13,27 @@ export default function StatCard({
 }) {
   return (
     <div
-      className={`relative overflow-hidden rounded-xl border border-slate-800/80 bg-slate-900/60 p-5 backdrop-blur shadow-sm hover:border-slate-700/80 transition-colors ${className}`}
+      className={`relative overflow-hidden rounded-2xl border border-white/85 bg-white/75 p-5 backdrop-blur-md shadow-glass hover:shadow-glass-hover hover:border-indigo-200/80 hover:-translate-y-0.5 transition-all duration-200 ${className}`}
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
           {title}
         </span>
         {Icon && (
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800/80 text-brand-400 border border-slate-700/50">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 text-indigo-600 border border-indigo-100/80 shadow-xs">
             <Icon className="h-4 w-4" />
           </div>
         )}
       </div>
 
       <div className="mt-3 flex items-baseline gap-2">
-        <span className="text-2xl font-bold tracking-tight text-white font-mono">
+        <span className="text-2xl font-bold tracking-tight text-slate-900 font-mono">
           {value}
         </span>
         {trend && (
           <span
-            className={`text-xs font-medium ${
-              trendPositive ? 'text-emerald-400' : 'text-rose-400'
+            className={`text-xs font-semibold ${
+              trendPositive ? 'text-emerald-600' : 'text-rose-600'
             }`}
           >
             {trend}
@@ -42,16 +42,16 @@ export default function StatCard({
       </div>
 
       {subtitle && (
-        <p className="mt-1 text-xs text-slate-400 line-clamp-1">{subtitle}</p>
+        <p className="mt-1 text-xs text-slate-500 line-clamp-1">{subtitle}</p>
       )}
 
       {badgeText && (
         <div className="mt-3">
           <span
-            className={`inline-block rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+            className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider border ${
               badgeVariant === 'success'
-                ? 'bg-emerald-500/15 text-emerald-300'
-                : 'bg-brand-500/15 text-brand-300'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-indigo-50 text-indigo-700 border-indigo-200'
             }`}
           >
             {badgeText}

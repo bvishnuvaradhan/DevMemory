@@ -5,23 +5,23 @@ import Badge from '../common/Badge';
 export default function HistoricalIncidentsCard({ historicalMatches = [], currentProjectName }) {
   if (!Array.isArray(historicalMatches) || historicalMatches.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5 text-center text-xs text-slate-500 font-mono">
-        <History className="h-5 w-5 mx-auto mb-2 text-slate-600" />
+      <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-6 text-center text-xs text-slate-500 font-mono shadow-glass">
+        <History className="h-5 w-5 mx-auto mb-2 text-slate-400" />
         <span>No previous matching incidents found in project or cross-project memory bank.</span>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-4">
-      <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+    <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-5 space-y-4 shadow-glass">
+      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
         <div className="flex items-center gap-2">
-          <History className="h-4 w-4 text-brand-400" />
-          <h3 className="text-sm font-semibold text-white font-mono">
+          <History className="h-4 w-4 text-brand-500" />
+          <h3 className="text-sm font-semibold text-slate-900 font-mono">
             Related Historical Precedents ({historicalMatches.length})
           </h3>
         </div>
-        <span className="text-[10px] text-slate-400 font-mono">
+        <span className="text-[10px] text-slate-500 font-mono font-medium">
           Persistent Memory Bank
         </span>
       </div>
@@ -32,25 +32,25 @@ export default function HistoricalIncidentsCard({ historicalMatches = [], curren
           return (
             <div
               key={idx}
-              className={`rounded-lg border p-4 transition-colors ${
+              className={`rounded-xl border p-4 transition-all shadow-xs ${
                 isCrossProject
-                  ? 'border-indigo-500/40 bg-indigo-950/20 hover:border-indigo-500/60'
-                  : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+                  ? 'border-indigo-200/80 bg-gradient-to-br from-indigo-50/50 to-white/90 hover:border-indigo-300'
+                  : 'border-slate-200/80 bg-white/90 hover:border-slate-300'
               }`}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   {isCrossProject ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/20 px-2.5 py-0.5 text-[11px] font-bold text-indigo-300 border border-indigo-500/40">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700 border border-indigo-200 shadow-xs">
                       <Share2 className="h-3 w-3" />
                       Cross-Project Match
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-800 px-2.5 py-0.5 text-[11px] font-semibold text-slate-300">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 border border-slate-200">
                       Current Project Memory
                     </span>
                   )}
-                  <span className="text-xs font-mono text-slate-300 font-semibold">
+                  <span className="text-xs font-mono text-slate-700 font-semibold">
                     Source: {match.sourceProject}
                   </span>
                 </div>
@@ -63,21 +63,21 @@ export default function HistoricalIncidentsCard({ historicalMatches = [], curren
               </div>
 
               {/* Match Rationale */}
-              <div className="mt-2.5 text-xs text-slate-300">
-                <span className="text-slate-500 font-mono text-[11px] block mb-0.5">
+              <div className="mt-2.5 text-xs text-slate-700">
+                <span className="text-slate-500 font-mono text-[11px] block mb-0.5 font-medium">
                   Why this precedent applies:
                 </span>
-                <p className="font-mono text-[11px] text-indigo-200/90 bg-slate-950/80 p-2 rounded border border-slate-800/60">
+                <p className="font-mono text-[11px] text-indigo-950 bg-slate-50/90 p-2 rounded-lg border border-slate-200/70">
                   {match.matchReason}
                 </p>
               </div>
 
               {/* Sanitized Fix Summary */}
               <div className="mt-3 text-xs">
-                <span className="text-slate-500 font-mono text-[11px] block mb-0.5">
+                <span className="text-slate-500 font-mono text-[11px] block mb-0.5 font-medium">
                   Sanitized Fix Outcome:
                 </span>
-                <p className="text-slate-200 font-sans leading-relaxed">
+                <p className="text-slate-800 font-sans leading-relaxed">
                   {match.sanitizedFixSummary}
                 </p>
               </div>

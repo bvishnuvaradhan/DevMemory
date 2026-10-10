@@ -65,10 +65,10 @@ export default function GlobalDashboard({ onDataLoaded }) {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white font-mono flex items-center gap-2">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 font-mono flex items-center gap-2">
             Global Platform Overview
           </h1>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs text-slate-500">
             Real-time command telemetry, cross-project memory retrieval, and verified fix rates.
           </p>
         </div>
@@ -76,15 +76,15 @@ export default function GlobalDashboard({ onDataLoaded }) {
         <button
           onClick={() => loadData(true)}
           disabled={refreshing}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs font-mono text-slate-300 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer self-start sm:self-auto"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2 text-xs font-mono text-slate-700 hover:bg-white hover:text-slate-900 shadow-xs hover:border-slate-300 transition-all cursor-pointer self-start sm:self-auto"
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-3.5 w-3.5 text-indigo-500 ${refreshing ? 'animate-spin' : ''}`} />
           <span>Refresh Telemetry</span>
         </button>
       </div>
 
       {/* Global Stat Cards Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
         <StatCard
           title="Projects"
           value={stats?.totalProjects ?? 0}
@@ -131,8 +131,8 @@ export default function GlobalDashboard({ onDataLoaded }) {
       <div>
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-white">Registered Project Workspaces</h2>
-            <p className="text-xs text-slate-400">Select a project to explore its runs, diagnoses, and memory bank.</p>
+            <h2 className="text-base font-semibold text-slate-900">Registered Project Workspaces</h2>
+            <p className="text-xs text-slate-500">Select a project to explore its runs, diagnoses, and memory bank.</p>
           </div>
         </div>
         <ProjectsGrid projects={projects} />
@@ -151,40 +151,47 @@ export default function GlobalDashboard({ onDataLoaded }) {
 
       {/* Section 4: Global Performance Pulse */}
       {overview?.performanceTrend && overview.performanceTrend.length > 0 && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 shadow-sm space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-5 shadow-glass space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-brand-400" />
-              <h3 className="text-sm font-semibold text-white font-mono">
+              <TrendingUp className="h-4 w-4 text-brand-500" />
+              <h3 className="text-sm font-semibold text-slate-900 font-mono">
                 Cross-Project Execution Time Pulse
               </h3>
             </div>
-            <span className="text-xs font-mono text-slate-400">
+            <span className="text-xs font-mono text-slate-500">
               Global Platform Trend (ms)
             </span>
           </div>
           <div className="h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={overview.performanceTrend} margin={{ top: 10, right: 20, left: -10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="timestamp" stroke="#64748b" tick={{ fontSize: 11, fill: '#64748b', fontFamily: 'monospace' }} />
-                <YAxis stroke="#64748b" tick={{ fontSize: 11, fill: '#64748b', fontFamily: 'monospace' }} unit="ms" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                <XAxis dataKey="timestamp" stroke="#94A3B8" tick={{ fontSize: 11, fill: '#64748B', fontFamily: 'monospace' }} />
+                <YAxis stroke="#94A3B8" tick={{ fontSize: 11, fill: '#64748B', fontFamily: 'monospace' }} unit="ms" />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (active && payload && payload.length) {
                       const d = payload[0].payload;
                       return (
-                        <div className="rounded bg-slate-900 border border-slate-700 p-2 text-xs font-mono">
-                          <span className="text-slate-400">Time: {d.timestamp}</span>
-                          <div className="text-white font-bold">Duration: {d.durationMs}ms</div>
-                          <div className="text-emerald-400">Baseline: {d.baselineMs}ms</div>
+                        <div className="rounded-xl bg-white/95 backdrop-blur-md border border-slate-200 p-2.5 shadow-lg text-xs font-mono">
+                          <span className="text-slate-500">Time: {d.timestamp}</span>
+                          <div className="text-slate-900 font-bold">Duration: {d.durationMs}ms</div>
+                          <div className="text-emerald-600 font-semibold">Baseline: {d.baselineMs}ms</div>
                         </div>
                       );
                     }
                     return null;
                   }}
                 />
-                <Line type="monotone" dataKey="durationMs" stroke="#818cf8" strokeWidth={2.5} dot={{ r: 4, fill: '#818cf8' }} />
+                <Line
+                  type="monotone"
+                  dataKey="durationMs"
+                  stroke="#6478F5"
+                  strokeWidth={2.5}
+                  dot={{ r: 4, fill: '#6478F5', stroke: '#FFFFFF', strokeWidth: 2 }}
+                  activeDot={{ r: 6, fill: '#4F46E5' }}
+                />
               </ComposedChart>
             </ResponsiveContainer>
           </div>

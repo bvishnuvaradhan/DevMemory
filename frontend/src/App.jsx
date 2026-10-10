@@ -36,7 +36,14 @@ export default function App() {
   const selectedProjectId = match ? match[1] : null;
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-950 text-slate-100">
+    <div className="flex min-h-screen flex-col bg-[#F4F7FC] text-slate-800 relative">
+      {/* Soft background ambient pastel gradients for glassmorphism */}
+      <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+        <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-blue-100/70 blur-3xl" />
+        <div className="absolute top-1/4 -right-32 w-96 h-96 rounded-full bg-purple-100/70 blur-3xl" />
+        <div className="absolute -bottom-32 left-1/3 w-96 h-96 rounded-full bg-emerald-100/50 blur-3xl" />
+      </div>
+
       {/* Demo / Mock banner at top */}
       <DemoBanner isMock={isMock} />
 
@@ -68,8 +75,8 @@ export default function App() {
               path="*"
               element={
                 <div className="p-12 text-center">
-                  <h2 className="text-lg font-bold text-white font-mono">Page Not Found</h2>
-                  <p className="mt-2 text-xs text-slate-400">
+                  <h2 className="text-lg font-bold text-slate-800 font-mono">Page Not Found</h2>
+                  <p className="mt-2 text-xs text-slate-500">
                     The requested view does not exist in DevMemory.
                   </p>
                 </div>

@@ -42,11 +42,11 @@ export default function EventsHistory() {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white font-mono flex items-center gap-2">
-            <History className="h-6 w-6 text-brand-400" />
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 font-mono flex items-center gap-2">
+            <History className="h-6 w-6 text-brand-500" />
             Events & Audit History
           </h1>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs text-slate-500">
             Immutable chronological audit stream of commands, error incidents, AI diagnoses, and fix-verification events.
           </p>
         </div>
@@ -54,9 +54,9 @@ export default function EventsHistory() {
         <button
           onClick={() => loadData(true)}
           disabled={refreshing}
-          className="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs font-mono text-slate-300 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer self-start sm:self-auto"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2 text-xs font-mono text-slate-700 hover:bg-white hover:text-slate-900 shadow-xs hover:border-slate-300 transition-all cursor-pointer self-start sm:self-auto"
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-3.5 w-3.5 text-indigo-500 ${refreshing ? 'animate-spin' : ''}`} />
           <span>Refresh Stream</span>
         </button>
       </div>
