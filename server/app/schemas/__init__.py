@@ -40,6 +40,12 @@ from app.schemas.performance import (
     PerformanceMeasurementResponse,
     RegressionStatus,
 )
+from app.schemas.llm_audit import (
+    LLMRequestAuditItem,
+    LLMSecuritySummary,
+    RedactionSummary,
+    SanitizedPromptPayload,
+)
 from app.schemas.project import ProjectCreate, ProjectResponse
 from app.schemas.run import EnvironmentInfo, ErrorContext, RunCreate, RunResponse
 

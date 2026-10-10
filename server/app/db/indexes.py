@@ -174,6 +174,48 @@ KNOWLEDGE_BASE_VALIDATOR = {
     }
 }
 
+LLM_REQUEST_AUDITS_VALIDATOR = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": [
+            "audit_id",
+            "project_id",
+            "attempt",
+            "provider",
+            "model",
+            "transmission_status",
+            "sanitized_payload",
+            "redaction_summary",
+            "payload_hash",
+            "capture_boundary",
+            "created_at",
+        ],
+        "properties": {
+            "audit_id": {"bsonType": "string"},
+            "project_id": {"bsonType": "string"},
+            "event_id": {"bsonType": ["string", "null"]},
+            "incident_id": {"bsonType": ["string", "null"]},
+            "diagnosis_id": {"bsonType": ["string", "null"]},
+            "attempt": {"bsonType": "int"},
+            "provider": {"bsonType": "string"},
+            "model": {"bsonType": "string"},
+            "transmission_status": {
+                "enum": ["prepared", "dispatched", "completed", "failed", "blocked_by_policy"]
+            },
+            "sanitized_payload": {"bsonType": "object"},
+            "redaction_summary": {"bsonType": "object"},
+            "payload_hash": {"bsonType": "string"},
+            "capture_boundary": {"bsonType": "string"},
+            "created_at": {"bsonType": "date"},
+            "dispatched_at": {"bsonType": ["date", "null"]},
+            "completed_at": {"bsonType": ["date", "null"]},
+            "duration_ms": {"bsonType": ["int", "long", "double", "null"]},
+            "error_message": {"bsonType": ["string", "null"]},
+        },
+    }
+}
+
+
 
 def _ensure_collection_with_validator(db: Database, name: str, validator: dict) -> None:
     """Create collection with schema validator if missing, or update validator safely."""
@@ -205,6 +247,7 @@ def init_indexes(db: Database) -> None:
     _ensure_collection_with_validator(db, "performance_runs", PERFORMANCE_RUNS_VALIDATOR)
     _ensure_collection_with_validator(db, "performance_baselines", PERFORMANCE_BASELINES_VALIDATOR)
     _ensure_collection_with_validator(db, "knowledge_base", KNOWLEDGE_BASE_VALIDATOR)
+    _ensure_collection_with_validator(db, "llm_request_audits", LLM_REQUEST_AUDITS_VALIDATOR)
 
     # 2. Projects indexes
     try:
@@ -337,7 +380,33 @@ def init_indexes(db: Database) -> None:
     except Exception as exc:
         logger.warning("Index error on knowledge_base: %s", exc)
 
-    # 10. Atlas Vector Search index on incidents
+    # 10. LLM request audits indexes
+    try:
+        db.llm_request_audits.create_index("audit_id", unique=True, name="idx_llm_audits_id_unique")
+        db.llm_request_audits.create_index(
+            [("project_id", ASCENDING), ("created_at", DESCENDING)],
+            name="idx_llm_audits_project_created",
+        )
+        db.llm_request_audits.create_index(
+            [("project_id", ASCENDING), ("transmission_status", ASCENDING), ("created_at", DESCENDING)],
+            name="idx_llm_audits_project_status_created",
+        )
+        db.llm_request_audits.create_index(
+            [("project_id", ASCENDING), ("provider", ASCENDING), ("created_at", DESCENDING)],
+            name="idx_llm_audits_project_provider_created",
+        )
+        db.llm_request_audits.create_index(
+            [("incident_id", ASCENDING), ("attempt", ASCENDING)],
+            name="idx_llm_audits_incident_attempt",
+        )
+        db.llm_request_audits.create_index(
+            [("event_id", ASCENDING)],
+            name="idx_llm_audits_event_id",
+        )
+    except Exception as exc:
+        logger.warning("Index error on llm_request_audits: %s", exc)
+
+    # 11. Atlas Vector Search index on incidents
     try:
         from app.services.embedding_service import ensure_atlas_vector_index
         ensure_atlas_vector_index(db)

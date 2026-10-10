@@ -34,6 +34,7 @@ from app.services.embedding_service import (
     ProductionMongoVectorSearchAdapter,
     get_active_embedding_provider,
 )
+from app.services.llm_audit_service import AuditedLLMClient, get_audited_llm_client
 from app.services.root_cause_analyzer import refine_root_cause_diagnosis
 
 logger = logging.getLogger(__name__)
@@ -336,6 +337,7 @@ def generate_and_store_incident_diagnosis(
     threshold: float = 0.60,
     force_recheck: bool = False,
     lease_timeout_seconds: float = DEFAULT_DIAGNOSIS_LEASE_SECONDS,
+    llm_client: Optional[Any] = None,
 ) -> Tuple[BackendDiagnosisResponseModel, bool]:
     """Execute AI diagnosis for an incident and persist the structured diagnosis in MongoDB.
 
@@ -482,6 +484,18 @@ def generate_and_store_incident_diagnosis(
             embedding_provider=active_embedding_prov,
         )
 
+        # Wire audited LLM client to ensure all outbound payloads are verified and audited
+        if isinstance(llm_client, AuditedLLMClient):
+            audited_client = llm_client
+        else:
+            audited_client = get_audited_llm_client(
+                db=db,
+                project_id=acquired_inc.get("project_id", ""),
+                incident_id=incident_id,
+                event_id=event_id,
+                underlying_client=llm_client,
+            )
+
         # Run AI diagnosis orchestrator with hybrid vector retrieval
         ai_resp = diagnose_error(
             request=req,
@@ -491,6 +505,7 @@ def generate_and_store_incident_diagnosis(
             disable_external_inference=disable_external_inference,
             vector_adapter=vector_adapter,
             embedding_provider=active_embedding_prov,
+            llm_client=audited_client,
         )
 
         # Map AI response to backend diagnosis schema
@@ -518,6 +533,16 @@ def generate_and_store_incident_diagnosis(
             payload=backend_payload,
             lease_token=lease_token,
         )
+
+        # Correlate diagnosis_id back to audit records for this incident
+        if diagnosis_resp and getattr(diagnosis_resp, "diagnosis_id", None):
+            try:
+                db.llm_request_audits.update_many(
+                    {"incident_id": incident_id, "diagnosis_id": None},
+                    {"$set": {"diagnosis_id": diagnosis_resp.diagnosis_id}},
+                )
+            except Exception as audit_link_exc:
+                logger.debug("Failed to link diagnosis_id to llm_request_audits: %s", audit_link_exc)
 
         return diagnosis_resp, is_new
 
