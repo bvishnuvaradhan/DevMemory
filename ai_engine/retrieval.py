@@ -167,14 +167,18 @@ def _match_project_memory(
                 else FixVerificationStatus(str(v_status_raw).lower())
             )
 
+            raw_res = cand.get("resolution_summary")
+            sanitized_res = redact_secrets(sanitize_file_path(raw_res)) if raw_res else None
+            sanitized_expl = redact_secrets(sanitize_file_path(explanation))
+
             matches.append(
                 IncidentMatch(
                     incident_id=cand.get("incident_id", "unknown_incident"),
                     project_id=request.project_id,
                     match_source=MatchSource.PROJECT_MEMORY,
                     similarity_score=score,
-                    explanation=explanation,
-                    resolution_summary=cand.get("resolution_summary"),
+                    explanation=sanitized_expl,
+                    resolution_summary=sanitized_res,
                     verification_status=v_status,
                 )
             )
@@ -244,7 +248,7 @@ def _match_cross_project_memory(
                     project_id=disclosed_project_id,
                     match_source=MatchSource.CROSS_PROJECT,
                     similarity_score=score,
-                    explanation=f"Cross-project precedent: {explanation}",
+                    explanation=redact_secrets(sanitize_file_path(f"Cross-project precedent: {explanation}")),
                     resolution_summary=sanitized_res,
                     verification_status=v_status,
                 )

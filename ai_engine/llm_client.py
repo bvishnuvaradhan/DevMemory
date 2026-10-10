@@ -75,8 +75,10 @@ class GroqLLMClient:
             # Fallback to direct HTTP via httpx or requests
             return self._call_via_http(system_prompt, user_prompt)
         except Exception as exc:
-            logger.error("Groq API execution failed: %s", exc)
-            raise RuntimeError(f"Groq API call failed: {exc}") from exc
+            from ai_engine.privacy import redact_secrets
+            safe_err = redact_secrets(str(exc))
+            logger.error("Groq API execution failed: %s", safe_err)
+            raise RuntimeError(f"Groq API call failed: {safe_err}") from None
 
     def _call_via_http(self, system_prompt: str, user_prompt: str) -> str:
         """Direct HTTP fallback using requests or httpx."""
@@ -103,8 +105,10 @@ class GroqLLMClient:
             data = resp.json()
             return data["choices"][0]["message"]["content"]
         except Exception as exc:
-            logger.error("HTTP request to Groq API failed: %s", exc)
-            raise RuntimeError(f"Direct HTTP call to Groq API failed: {exc}") from exc
+            from ai_engine.privacy import redact_secrets
+            safe_err = redact_secrets(str(exc))
+            logger.error("HTTP request to Groq API failed: %s", safe_err)
+            raise RuntimeError(f"Direct HTTP call to Groq API failed: {safe_err}") from None
 
 
 class MockLLMClient:
