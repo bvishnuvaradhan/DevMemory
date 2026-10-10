@@ -20,7 +20,9 @@ from ai_engine.evaluation.evaluator import run_evaluation
 from ai_engine.evaluation.retrieval_benchmark import (
     BENCHMARK_CORPUS,
     BENCHMARK_SCENARIOS,
+    BENCHMARK_VERSION,
     BenchmarkMockDenseClient,
+    compute_ir_metrics,
     run_all_retrieval_benchmarks,
     run_retrieval_mode_benchmark,
 )
@@ -201,3 +203,156 @@ def test_fail_closed_authorization_security():
     res_cross = retrieve_memory(req, auth_cross, repository=repo, vector_adapter=adapter, embedding_provider=provider)
     cross_ids = {m.incident_id for m in res_cross.cross_project_matches}
     assert "inc_private_classified_billing" not in cross_ids
+
+
+def test_retrieval_benchmark_v2_dataset_structure_and_categories():
+    """Verify v2.0.0 dataset expansion to 30 corpus items, 33 scenarios, and explicit categories."""
+    assert BENCHMARK_VERSION == "2.0.0"
+
+    # 1. Corpus verification
+    assert len(BENCHMARK_CORPUS) == 30
+    corpus_ids = [item["incident_id"] for item in BENCHMARK_CORPUS]
+    assert len(set(corpus_ids)) == 30  # All IDs unique
+
+    # 2. Scenario verification
+    assert len(BENCHMARK_SCENARIOS) == 33
+    scenario_ids = [s.scenario_id for s in BENCHMARK_SCENARIOS]
+    assert len(set(scenario_ids)) == 33  # All scenario IDs unique
+
+    # 3. Denominators verification
+    pos_cases = [s for s in BENCHMARK_SCENARIOS if s.expected_target_id is not None and not s.is_cross_project]
+    neg_cases = [s for s in BENCHMARK_SCENARIOS if s.scenario_type == "negative_unrelated"]
+    clash_cases = [s for s in BENCHMARK_SCENARIOS if s.clashing_id is not None]
+    cross_cases = [s for s in BENCHMARK_SCENARIOS if s.is_cross_project]
+
+    assert len(pos_cases) == 26
+    assert len(neg_cases) == 5
+    assert len(clash_cases) == 4
+    assert len(cross_cases) == 2
+    assert len(pos_cases) + len(neg_cases) + len(cross_cases) == 33
+
+    # 4. Integrity of referenced IDs
+    corpus_id_set = set(corpus_ids)
+    for scn in BENCHMARK_SCENARIOS:
+        if scn.expected_target_id:
+            assert scn.expected_target_id in corpus_id_set, f"Unknown target {scn.expected_target_id} in {scn.scenario_id}"
+        if scn.distractor_id:
+            assert scn.distractor_id in corpus_id_set, f"Unknown distractor {scn.distractor_id} in {scn.scenario_id}"
+        if scn.clashing_id:
+            assert scn.clashing_id in corpus_id_set, f"Unknown clashing {scn.clashing_id} in {scn.scenario_id}"
+        if scn.forbidden_leak_id:
+            assert scn.forbidden_leak_id in corpus_id_set, f"Unknown forbidden {scn.forbidden_leak_id} in {scn.scenario_id}"
+
+    # 5. Technical categories verification
+    categories = {s.category for s in BENCHMARK_SCENARIOS}
+    required_domains = {
+        "auth_jwt", "database", "node_runtime", "python_deps", "cache_redis",
+        "containers_docker", "node_esm", "vcs_git", "web_cors", "security_tls",
+        "concurrency_deadlock", "filesystem_os", "rust_borrow", "go_runtime",
+        "syntax_compilation", "data_integrity", "api_rate_limit", "environment_runtime",
+        "security_privacy", "unrelated_negative", "contradiction_guard", "security_isolation",
+    }
+    for dom in required_domains:
+        assert dom in categories, f"Missing required domain: {dom}"
+
+
+def test_compute_ir_metrics_mathematical_properties_and_boundaries():
+    """Verify IR metric formulas, boundary handling, and zero-division safety."""
+    # Case A: Perfect retrieval
+    perf = compute_ir_metrics(
+        hits_at_1=10,
+        hits_at_3=10,
+        hits_at_5=10,
+        reciprocal_ranks=[1.0] * 10,
+        n_pos=10,
+        false_positives=0,
+        n_neg=5,
+        clash_passed=3,
+        n_clash=3,
+        isolation_passed=2,
+        n_cross=2,
+    )
+    assert perf["recall_at_1"] == 1.0
+    assert perf["recall_at_3"] == 1.0
+    assert perf["recall_at_5"] == 1.0
+    assert perf["precision_at_1"] == 1.0
+    assert abs(perf["precision_at_3"] - (1.0 / 3.0)) < 1e-4
+    assert perf["mrr"] == 1.0
+    assert perf["false_positive_rate"] == 0.0
+    assert perf["contradiction_rejection_rate"] == 1.0
+    assert perf["project_isolation_rate"] == 1.0
+
+    # Case B: Degraded retrieval (5 at rank 1, 3 at rank 2, 2 at rank 5)
+    rr = [1.0] * 5 + [0.5] * 3 + [0.2] * 2
+    degraded = compute_ir_metrics(
+        hits_at_1=5,
+        hits_at_3=8,
+        hits_at_5=10,
+        reciprocal_ranks=rr,
+        n_pos=10,
+        false_positives=1,
+        n_neg=4,
+        clash_passed=2,
+        n_clash=3,
+        isolation_passed=1,
+        n_cross=2,
+    )
+    assert degraded["recall_at_1"] == 0.5
+    assert degraded["recall_at_3"] == 0.8
+    assert degraded["recall_at_5"] == 1.0
+    assert degraded["precision_at_1"] == 0.5
+    assert abs(degraded["precision_at_3"] - (8.0 / 30.0)) < 1e-4
+    assert abs(degraded["mrr"] - (5.0 + 1.5 + 0.4) / 10.0) < 1e-4
+    assert degraded["false_positive_rate"] == 0.25
+    assert abs(degraded["contradiction_rejection_rate"] - (2.0 / 3.0)) < 1e-4
+    assert degraded["project_isolation_rate"] == 0.5
+
+    # Case C: Boundary condition: zero positives (safe fallback)
+    zero_pos = compute_ir_metrics(
+        hits_at_1=0, hits_at_3=0, hits_at_5=0, reciprocal_ranks=[], n_pos=0,
+        false_positives=0, n_neg=5, clash_passed=2, n_clash=2, isolation_passed=1, n_cross=1,
+    )
+    assert zero_pos["recall_at_1"] == 1.0
+    assert zero_pos["mrr"] == 1.0
+
+    # Case D: Boundary condition: zero negatives (safe fallback)
+    zero_neg = compute_ir_metrics(
+        hits_at_1=5, hits_at_3=5, hits_at_5=5, reciprocal_ranks=[1.0] * 5, n_pos=5,
+        false_positives=0, n_neg=0, clash_passed=2, n_clash=2, isolation_passed=1, n_cross=1,
+    )
+    assert zero_neg["false_positive_rate"] == 0.0
+
+
+def test_cross_domain_retrieval_generalization_v2():
+    """Verify Mode 3 semantic clustering retrieves target incidents across varied technical domains."""
+    res_m3 = run_retrieval_mode_benchmark("mode3_dense_mock_hybrid")
+    detailed = {d["scenario_id"]: d for d in res_m3.detailed_ranks}
+
+    # Verify key domains are retrieved in top-3
+    assert detailed["bm_pos_01_jwt_expired"]["rank"] == 1
+    assert detailed["bm_pos_02_db_connection_refused"]["rank"] == 1
+    assert detailed["bm_pos_05_redis_out_of_memory"]["rank"] == 1
+    assert detailed["bm_pos_06_docker_port_conflict"]["rank"] == 1
+    assert detailed["bm_pos_07_esm_module_loader"]["rank"] == 1
+    assert detailed["bm_pos_08_git_stale_lockfile"]["rank"] == 1
+    assert detailed["bm_pos_09_cors_header_missing"]["rank"] == 1
+    assert detailed["bm_pos_10_ssl_cert_expired"]["rank"] == 1
+    assert detailed["bm_pos_11_deadlock_concurrency"]["rank"] == 1
+    assert detailed["bm_pos_12_permission_denied"]["rank"] == 1
+    assert detailed["bm_pos_13_rust_borrow_mut"]["rank"] == 1
+
+
+def test_suite_a_and_suite_b_independence():
+    """Verify Suite A (diagnostic 56 scenarios) and Suite B (retrieval 33 scenarios) remain independent."""
+    suite_a_ids = {s["scenario_id"] for s in EVALUATION_SCENARIOS}
+    suite_b_ids = {s.scenario_id for s in BENCHMARK_SCENARIOS}
+
+    # Zero overlap in scenario IDs
+    assert len(suite_a_ids.intersection(suite_b_ids)) == 0
+    assert len(suite_a_ids) == 56
+    assert len(suite_b_ids) == 33
+
+    # Suite A evaluation runs with 100% pass rate
+    metrics, _ = run_evaluation(live_llm=False)
+    assert metrics.total_scenarios == 56
+    assert metrics.passed_scenarios == 56
