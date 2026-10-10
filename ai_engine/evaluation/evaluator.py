@@ -297,12 +297,13 @@ def run_evaluation(
         # 9. Root-Cause Accuracy
         if not is_unscorable and expected_causes:
             scorable_root_cause_cases += 1
-            cause_text = (diag_res.likely_cause + " " + diag_res.summary).lower()
+            cause_text = (diag_res.likely_cause + " " + diag_res.summary + " " + " ".join(diag_res.hypotheses)).lower()
             matched_cause = any(
-                cause_token.replace("_", " ") in cause_text or any(word in cause_text for word in cause_token.split("_"))
+                cause_token.replace("_", " ") in cause_text or any(word in cause_text for word in cause_token.split("_") if len(word) > 2)
                 for cause_token in expected_causes
             )
-            if matched_cause or diag_res.confidence is not None:
+            # Require actual semantic or category match; do not permit arbitrary confidence to bypass
+            if matched_cause:
                 root_cause_passed += 1
             else:
                 failures.append(f"Root cause '{diag_res.likely_cause}' did not match expected categories {expected_causes}")
@@ -312,7 +313,8 @@ def run_evaluation(
         if evidence_tokens:
             evidence_token_cases += 1
             all_evidence_text = " ".join(diag_res.evidence).lower() + " " + diag_res.likely_cause.lower()
-            retained_tokens = [tok for tok in evidence_tokens if tok.lower() in all_evidence_text or tok.lower() in req.error_message.lower()]
+            # Tokens must be present in the generated diagnosis evidence, proving grounding in observed data
+            retained_tokens = [tok for tok in evidence_tokens if tok.lower() in all_evidence_text]
             if len(retained_tokens) >= len(evidence_tokens) * 0.5:
                 evidence_token_passed += 1
             else:
@@ -387,6 +389,7 @@ def export_evaluation_reports(
     metrics: EvaluationMetrics,
     details: List[Dict[str, Any]],
     output_dir: Path | str = "reports",
+    live_llm: bool = False,
 ) -> Tuple[Path, Path]:
     """Export machine-readable JSON and human-readable Markdown evaluation reports.
     
@@ -398,6 +401,9 @@ def export_evaluation_reports(
     json_file = out_path / "ai_engine_evaluation.json"
     json_data = {
         "dataset_version": DATASET_VERSION,
+        "evaluation_tier": "live_groq" if (live_llm and os.getenv("GROQ_API_KEY")) else "offline_mock_pipeline",
+        "live_llm_invoked": bool(live_llm and os.getenv("GROQ_API_KEY")),
+        "model_identifier": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile") if (live_llm and os.getenv("GROQ_API_KEY")) else "offline_mock_grounded",
         "metrics_summary": metrics.to_dict(),
         "scenario_results": details,
     }
@@ -405,7 +411,7 @@ def export_evaluation_reports(
         json.dump(json_data, f, indent=2)
 
     md_file = out_path / "ai_engine_evaluation.md"
-    md_content = generate_markdown_report(metrics, details)
+    md_content = generate_markdown_report(metrics, details, live_llm=live_llm)
     with open(md_file, "w", encoding="utf-8") as f:
         f.write(md_content)
 
@@ -415,36 +421,53 @@ def export_evaluation_reports(
 def generate_markdown_report(
     metrics: EvaluationMetrics,
     details: List[Dict[str, Any]],
+    live_llm: bool = False,
 ) -> str:
-    """Generate Markdown report from evaluation results."""
+    """Generate Markdown report from evaluation results with clear tier distinction."""
+    tier_name = "Live Groq Inference Pipeline" if (live_llm and os.getenv("GROQ_API_KEY")) else "Deterministic & Mock-LLM Offline Pipeline"
+    model_name = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile") if (live_llm and os.getenv("GROQ_API_KEY")) else "MockLLMClient (Dynamic Grounded Provider)"
+
     lines = [
         "# DevMemory — AI Engine Evaluation & Quality Benchmark Report",
         "",
         f"**Dataset Version:** `{DATASET_VERSION}`  ",
         "**Component:** Member 3 — AI & Cross-Project Memory Engine  ",
         "**Branch:** `feature/member-3-ai-memory`  ",
+        f"**Evaluation Tier:** {tier_name}  ",
+        f"**Model / Engine Under Test:** `{model_name}`  ",
         f"**Total Scenarios Evaluated:** {metrics.total_scenarios} ({metrics.passed_scenarios} passed, {metrics.failed_scenarios} failed)  ",
         f"**Overall Quality Pass Rate:** {metrics.to_dict()['pass_rate_percent']}%  ",
-        f"**Explicitly Unscorable Cases:** {metrics.unscorable_scenarios}  ",
+        f"**Explicitly Unscorable Cases:** {metrics.unscorable_scenarios} (strictly excluded from accuracy denominators)  ",
         "",
         "---",
         "",
-        "## 1. Measured Evaluation Metrics",
+        "## 1. Multi-Tier Evaluation Architecture",
         "",
-        "| Metric Name | Value | Definition |",
-        "| :--- | :---: | :--- |",
+        "DevMemory distinguishes five clear tiers of verification:",
+        "1. **Deterministic Unit Tests:** 57+ unit tests covering deterministic normalization, signatures, regex sanitizers, and schemas.",
+        "2. **Offline Pipeline Benchmarks:** 56 scenarios executed against deterministic 3-level retrieval and grounded mock LLM with simulated provider failure modes.",
+        "3. **Optional Live Groq Benchmarks:** Opt-in real model testing (`--live-llm`) with live rate limit and JSON schema handling.",
+        "4. **Independent Diagnosis Quality Scoring:** Ground-truth category checks and token evidence grounding without permissive confidence bypasses.",
+        "5. **Unscorable Boundary Exclusions:** Unknown formats or hardware traps are explicitly labeled unscorable rather than falsely awarded full credit.",
+        "",
+        "---",
+        "",
+        "## 2. Measured Evaluation Metrics & Mathematical Formulations",
+        "",
+        "| Metric Name | Value | Numerator / Denominator | Definition |",
+        "| :--- | :---: | :---: | :--- |",
     ]
 
     metrics_dict = metrics.to_dict()["metrics"]
     for name, data in metrics_dict.items():
         val_str = f"{data['value']}%"
-        lines.append(f"| **{name}** | **{val_str}** | {data['definition']} |")
+        lines.append(f"| **{name}** | **{val_str}** | `{data.get('formula', 'Count / Total')}` | {data['definition']} |")
 
     lines.extend([
         "",
         "---",
         "",
-        "## 2. Failure Pattern Breakdown (Task 5)",
+        "## 3. Failure Pattern Breakdown (Task 5)",
         "",
         "| Failure Category | Incident Count | Impact & Notes |",
         "| :--- | :---: | :--- |",
@@ -469,7 +492,7 @@ def generate_markdown_report(
         "",
         "---",
         "",
-        "## 3. Scenario Results Summary",
+        "## 4. Scenario Results Summary",
         "",
         "| Scenario ID | Category | Status | Top Match | Fix Status |",
         "| :--- | :--- | :---: | :--- | :---: |",
@@ -478,13 +501,22 @@ def generate_markdown_report(
     for d in details:
         status_icon = "PASSED" if d["passed"] else "FAILED"
         top_match = d.get("top_match_id") or "None"
-        lines.append(f"| `{d['scenario_id']}` | {d['category']} | {status_icon} | `{top_match}` | {d['fix_status']} |")
+        unscorable_flag = " (Unscorable)" if d.get("is_unscorable") else ""
+        lines.append(f"| `{d['scenario_id']}` | {d['category']}{unscorable_flag} | {status_icon} | `{top_match}` | {d['fix_status']} |")
 
     lines.extend([
         "",
         "---",
         "",
-        "## 4. Verification & Reproduction Command",
+        "## 5. Methodological Audit & Known Limitations",
+        "",
+        "- **Semantic Judgment Limits:** Automated evaluation checks token grounding and category keywords; semantic coherence on novel open-ended errors requires qualitative human review.",
+        "- **Live LLM Flakiness:** Real Groq API execution is opt-in and rate-limited; offline evaluation is the single source of deterministic CI truth.",
+        "- **Pre-Vector Search State:** Retrieval currently uses explainable token-jaccard and signature matching. Semantic vector search is deferred to Phase 6.",
+        "",
+        "---",
+        "",
+        "## 6. Verification & Reproduction Command",
         "",
         "To execute the reproducible offline evaluation and regenerate reports:",
         "```bash",

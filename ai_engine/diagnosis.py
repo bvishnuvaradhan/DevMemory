@@ -71,8 +71,13 @@ def _synthesize_fallback_diagnosis(
         top_match = retrieval_result.all_ranked_matches[0]
         summary = f"Identified probable cause matching {top_match.incident_id}"
         likely_cause = f"Matched {top_match.match_source.value} ({top_match.similarity_score:.0%}): {top_match.explanation}"
+        hypotheses = [
+            f"Precedent hypothesis from {top_match.incident_id}: {top_match.explanation}",
+            "Underlying dependency, configuration, or environment mismatch",
+        ]
         if top_match.resolution_summary:
             recommended_steps.insert(0, f"Consider precedent resolution: {top_match.resolution_summary}")
+            hypotheses.append(top_match.resolution_summary)
 
     return DiagnosisResponse(
         event_id=request.event_id,

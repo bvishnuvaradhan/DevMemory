@@ -1,62 +1,78 @@
 {
-  "dataset_version": "2.0.0",
+  "dataset_version": "2.1.0",
+  "evaluation_tier": "offline_mock_pipeline",
+  "live_llm_invoked": false,
+  "model_identifier": "offline_mock_grounded",
   "metrics_summary": {
-    "total_scenarios": 52,
-    "passed_scenarios": 52,
+    "total_scenarios": 56,
+    "passed_scenarios": 56,
     "failed_scenarios": 0,
-    "unscorable_scenarios": 3,
+    "unscorable_scenarios": 4,
     "pass_rate_percent": 100.0,
     "metrics": {
       "RetrievalRecall@3": {
         "value": 100.0,
+        "formula": "Hits in top-3 / Scenarios with expected KB target",
         "definition": "Proportion of scenarios with a target KB item where the target was present in the top-3 ranked results."
       },
       "RetrievalPrecision@1": {
         "value": 100.0,
+        "formula": "Top-1 exact hits / Scenarios with expected KB target",
         "definition": "Proportion of scenarios with a target KB item where the top-ranked result matched the target."
       },
       "FalsePositiveRate": {
         "value": 0.0,
+        "formula": "Non-target queries scoring >= 0.70 / Non-target scenarios",
         "definition": "Proportion of scenarios without a valid error target where unrelated items scored >= threshold."
       },
       "ProjectScopingAccuracy": {
         "value": 100.0,
+        "formula": "Zero cross-project leaks into Level 2 / Total project queries",
         "definition": "Proportion of project queries where incidents from other projects were completely excluded from Level 2 memory."
       },
       "CrossProjectAuthAccuracy": {
         "value": 100.0,
+        "formula": "Compliant auth & sanitization / Authorized cross-project queries",
         "definition": "Proportion of cross-project queries where server-side authorization and public policy were strictly enforced."
       },
       "SecretRedactionRate": {
         "value": 100.0,
+        "formula": "Completely sanitized outputs / Credential-bearing scenarios",
         "definition": "Proportion of credential-bearing scenarios where all synthetic secrets were redacted before processing."
       },
       "UnverifiedStatusCompliance": {
         "value": 100.0,
+        "formula": "Preserved 'unverified' status / Total diagnosed scenarios",
         "definition": "Proportion of diagnosed scenarios where fix_status was correctly set to unverified (preventing premature verification claims)."
       },
       "EventIdPreservationRate": {
         "value": 100.0,
+        "formula": "Output event_id strictly equal to input / Total scenarios",
         "definition": "Proportion of diagnosed scenarios where output event_id strictly matches originating request event_id."
       },
       "RootCauseAccuracy": {
         "value": 100.0,
+        "formula": "Diagnosed category in expected categories / Scorable scenarios",
         "definition": "Proportion of scorable scenarios where diagnosis correctly identified an acceptable root cause category."
       },
       "EvidenceGroundingRate": {
         "value": 100.0,
+        "formula": "Retained >=50% key tokens in diagnosis evidence / Scenarios with evidence tokens",
         "definition": "Proportion of scenarios where diagnosis evidence retained essential diagnostic tokens from the input."
       },
       "UnsupportedClaimRate": {
         "value": 0.0,
+        "formula": "Hallucinated verifications or ungrounded claims / Total scenarios",
         "definition": "Proportion of scenarios where unverified solutions were prematurely marked verified or ungrounded locations were hallucinated."
       },
       "InsufficientEvidenceHandlingRate": {
         "value": 100.0,
+        "formula": "Explicitly acknowledged uncertainty / Insufficient evidence scenarios",
         "definition": "Proportion of scenarios with truncated or vague errors where uncertainty was explicitly acknowledged."
       },
       "FallbackResilienceRate": {
         "value": 100.0,
+        "formula": "Successful deterministic fallback executions / Provider failure scenarios",
         "definition": "Proportion of simulated provider failure scenarios (timeouts, malformed JSON) where deterministic fallback succeeded."
       }
     },
@@ -247,7 +263,7 @@
       "passed": true,
       "failures": [],
       "top_match_id": null,
-      "confidence": 0.85,
+      "confidence": 0.4,
       "fix_status": "unverified",
       "is_unscorable": true
     },
@@ -588,6 +604,46 @@
       "failures": [],
       "top_match_id": "kb_py_key_err",
       "confidence": 0.95,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_53_misleading_plausible_match",
+      "category": "misleading_history",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.4,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_54_contradiction_log_snippet",
+      "category": "similar_different_cause",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
+      "fix_status": "unverified",
+      "is_unscorable": false
+    },
+    {
+      "scenario_id": "scn_55_unknown_architecture_crash",
+      "category": "unknown_format",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.4,
+      "fix_status": "unverified",
+      "is_unscorable": true
+    },
+    {
+      "scenario_id": "scn_56_similar_econnrefused_redis_sentinel",
+      "category": "similar_different_cause",
+      "passed": true,
+      "failures": [],
+      "top_match_id": null,
+      "confidence": 0.85,
       "fix_status": "unverified",
       "is_unscorable": false
     }

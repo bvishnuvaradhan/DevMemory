@@ -50,54 +50,67 @@ class EvaluationMetrics:
             "metrics": {
                 "RetrievalRecall@3": {
                     "value": round(self.retrieval_recall_at_3 * 100, 2),
+                    "formula": "Hits in top-3 / Scenarios with expected KB target",
                     "definition": "Proportion of scenarios with a target KB item where the target was present in the top-3 ranked results.",
                 },
                 "RetrievalPrecision@1": {
                     "value": round(self.retrieval_precision_at_1 * 100, 2),
+                    "formula": "Top-1 exact hits / Scenarios with expected KB target",
                     "definition": "Proportion of scenarios with a target KB item where the top-ranked result matched the target.",
                 },
                 "FalsePositiveRate": {
                     "value": round(self.false_positive_rate * 100, 2),
+                    "formula": "Non-target queries scoring >= 0.70 / Non-target scenarios",
                     "definition": "Proportion of scenarios without a valid error target where unrelated items scored >= threshold.",
                 },
                 "ProjectScopingAccuracy": {
                     "value": round(self.project_scoping_accuracy * 100, 2),
+                    "formula": "Zero cross-project leaks into Level 2 / Total project queries",
                     "definition": "Proportion of project queries where incidents from other projects were completely excluded from Level 2 memory.",
                 },
                 "CrossProjectAuthAccuracy": {
                     "value": round(self.cross_project_auth_accuracy * 100, 2),
+                    "formula": "Compliant auth & sanitization / Authorized cross-project queries",
                     "definition": "Proportion of cross-project queries where server-side authorization and public policy were strictly enforced.",
                 },
                 "SecretRedactionRate": {
                     "value": round(self.secret_redaction_rate * 100, 2),
+                    "formula": "Completely sanitized outputs / Credential-bearing scenarios",
                     "definition": "Proportion of credential-bearing scenarios where all synthetic secrets were redacted before processing.",
                 },
                 "UnverifiedStatusCompliance": {
                     "value": round(self.unverified_status_compliance * 100, 2),
+                    "formula": "Preserved 'unverified' status / Total diagnosed scenarios",
                     "definition": "Proportion of diagnosed scenarios where fix_status was correctly set to unverified (preventing premature verification claims).",
                 },
                 "EventIdPreservationRate": {
                     "value": round(self.event_id_preservation_rate * 100, 2),
+                    "formula": "Output event_id strictly equal to input / Total scenarios",
                     "definition": "Proportion of diagnosed scenarios where output event_id strictly matches originating request event_id.",
                 },
                 "RootCauseAccuracy": {
                     "value": round(self.root_cause_accuracy * 100, 2),
+                    "formula": "Diagnosed category in expected categories / Scorable scenarios",
                     "definition": "Proportion of scorable scenarios where diagnosis correctly identified an acceptable root cause category.",
                 },
                 "EvidenceGroundingRate": {
                     "value": round(self.evidence_grounding_rate * 100, 2),
+                    "formula": "Retained >=50% key tokens in diagnosis evidence / Scenarios with evidence tokens",
                     "definition": "Proportion of scenarios where diagnosis evidence retained essential diagnostic tokens from the input.",
                 },
                 "UnsupportedClaimRate": {
                     "value": round(self.unsupported_claim_rate * 100, 2),
+                    "formula": "Hallucinated verifications or ungrounded claims / Total scenarios",
                     "definition": "Proportion of scenarios where unverified solutions were prematurely marked verified or ungrounded locations were hallucinated.",
                 },
                 "InsufficientEvidenceHandlingRate": {
                     "value": round(self.insufficient_evidence_handling_rate * 100, 2),
+                    "formula": "Explicitly acknowledged uncertainty / Insufficient evidence scenarios",
                     "definition": "Proportion of scenarios with truncated or vague errors where uncertainty was explicitly acknowledged.",
                 },
                 "FallbackResilienceRate": {
                     "value": round(self.fallback_resilience_rate * 100, 2),
+                    "formula": "Successful deterministic fallback executions / Provider failure scenarios",
                     "definition": "Proportion of simulated provider failure scenarios (timeouts, malformed JSON) where deterministic fallback succeeded.",
                 },
             },

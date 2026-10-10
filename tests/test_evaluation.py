@@ -16,7 +16,7 @@ from ai_engine.schemas import DiagnosisRequest
 def test_evaluation_dataset_completeness():
     """Verify that the evaluation dataset covers >= 50 scenarios and all required domains."""
     assert len(EVALUATION_SCENARIOS) >= 50
-    assert DATASET_VERSION == "2.0.0"
+    assert DATASET_VERSION == "2.1.0"
 
     categories = {scn["category"] for scn in EVALUATION_SCENARIOS}
     required_categories = {

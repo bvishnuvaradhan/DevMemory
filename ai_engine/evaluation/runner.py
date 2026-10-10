@@ -1,6 +1,7 @@
 """CLI entrypoint for running the DevMemory AI Engine reproducible evaluation harness."""
 
 import argparse
+import os
 import sys
 from ai_engine.evaluation.evaluator import export_evaluation_reports, run_evaluation
 
@@ -18,6 +19,10 @@ def main() -> int:
         help="Directory to save evaluation reports (default: reports)",
     )
     args = parser.parse_args()
+
+    if args.live_llm and not os.getenv("GROQ_API_KEY"):
+        print("[!] Note: --live-llm requested, but GROQ_API_KEY is not configured in environment.")
+        print("    Live evaluation skipped; running with deterministic offline MockLLMClient.")
 
     print(f"[*] Running DevMemory AI Engine Evaluation (live_llm={args.live_llm})...")
     metrics, details = run_evaluation(live_llm=args.live_llm)

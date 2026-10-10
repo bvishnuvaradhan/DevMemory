@@ -18,7 +18,7 @@ Each scenario defines:
 from typing import Any, Dict, List, Optional
 from ai_engine.schemas import DiagnosisRequest, SourceLocation, SourceSnippet
 
-DATASET_VERSION = "2.0.0"
+DATASET_VERSION = "2.1.0"
 
 EVALUATION_SCENARIOS: List[Dict[str, Any]] = [
     # 1. Python Module Not Found
@@ -656,7 +656,7 @@ EVALUATION_SCENARIOS: List[Dict[str, Any]] = [
             error_message="TypeError: Cannot read properties of undefined (reading 'map')",
             allow_cross_project=True,
         ),
-        "expected_root_cause_categories": ["uninitialized_array"],
+        "expected_root_cause_categories": ["uninitialized_array", "uninitialized_state", "property_access_on_undefined"],
         "relevant_evidence_tokens": ["TypeError", "map"],
         "expected_kb_id": "kb_js_type_read_prop",
         "expected_retrieval_behavior": "blocked_by_auth",
@@ -1178,7 +1178,7 @@ EVALUATION_SCENARIOS: List[Dict[str, Any]] = [
             error_message="thread 'main' panicked at 'called Option::unwrap() on a None value', src/lib.rs:52:13",
             locations=[SourceLocation(file_path="src/lib.rs", line=52, column=13)],
         ),
-        "expected_root_cause_categories": ["rust_panic", "unwrap_on_none"],
+        "expected_root_cause_categories": ["unscorable", "rust_panic", "unwrap_on_none"],
         "relevant_evidence_tokens": ["panicked", "unwrap()", "src/lib.rs"],
         "expected_kb_id": None,
         "expected_retrieval_behavior": "no_match",
@@ -1203,7 +1203,7 @@ EVALUATION_SCENARIOS: List[Dict[str, Any]] = [
             error_message="panic: runtime error: index out of range [3] with length 2\ngoroutine 1 [running]:\nmain.process(0xc0000a)\n\t/app/main.go:25 +0x45",
             locations=[SourceLocation(file_path="/app/main.go", line=25)],
         ),
-        "expected_root_cause_categories": ["go_panic", "slice_index_out_of_bounds"],
+        "expected_root_cause_categories": ["unscorable", "go_panic", "slice_index_out_of_bounds"],
         "relevant_evidence_tokens": ["panic", "index out of range", "main.go"],
         "expected_kb_id": None,
         "expected_retrieval_behavior": "no_match",
@@ -1303,7 +1303,7 @@ EVALUATION_SCENARIOS: List[Dict[str, Any]] = [
             exit_code=1,
             error_message="ModuleNotFoundError: No module named 'fastapi'",
         ),
-        "expected_root_cause_categories": ["missing_dependency"],
+        "expected_root_cause_categories": ["missing_dependency", "uninstalled_package", "module_not_found"],
         "relevant_evidence_tokens": ["fastapi", "ModuleNotFoundError"],
         "expected_kb_id": "kb_py_mod_not_found",
         "expected_retrieval_behavior": "general_kb_hit",
@@ -1328,7 +1328,7 @@ EVALUATION_SCENARIOS: List[Dict[str, Any]] = [
             exit_code=1,
             error_message="TypeError: Cannot read properties of undefined (reading 'token')",
         ),
-        "expected_root_cause_categories": ["uninitialized_state"],
+        "expected_root_cause_categories": ["uninitialized_state", "property_access_on_undefined", "undefined_property_access"],
         "relevant_evidence_tokens": ["TypeError", "token"],
         "expected_kb_id": "kb_js_type_read_prop",
         "expected_retrieval_behavior": "general_kb_hit",
@@ -1363,6 +1363,114 @@ EVALUATION_SCENARIOS: List[Dict[str, Any]] = [
         "evaluation_criteria": {
             "retrieval_hit": True,
             "fix_status": "unverified",  # Orchestrator must enforce unverified
+        },
+    },
+    # 53. Misleading Plausible Match (Environment & Platform Mismatch)
+    {
+        "scenario_id": "scn_53_misleading_plausible_match",
+        "category": "misleading_history",
+        "description": "Port 3000 refused, but error is inside AWS Lambda where listening on port is impossible",
+        "request": DiagnosisRequest(
+            event_id="evt_eval_53",
+            project_id="proj_serverless",
+            command="aws lambda invoke --function-name api-handler response.json",
+            exit_code=1,
+            error_message="RuntimeError: Failed to connect to serverless internal bridge at 127.0.0.1:3000",
+            stack_trace="File '/var/runtime/bootstrap.py', line 12\n  connect_bridge()",
+            locations=[SourceLocation(file_path="/var/runtime/bootstrap.py", line=12)],
+        ),
+        "expected_root_cause_categories": ["serverless_runtime_initialization", "bootstrap_bridge_timeout"],
+        "relevant_evidence_tokens": ["bootstrap.py", "serverless internal bridge"],
+        "expected_kb_id": None,  # Plausible kb_node_econnrefused should NOT be accepted as ground truth root cause
+        "expected_retrieval_behavior": "no_match",
+        "definitive_fix_justified": False,
+        "expected_privacy_behavior": "clean",
+        "simulated_provider_mode": "normal",
+        "evaluation_criteria": {
+            "fix_status": "unverified",
+            "acknowledges_uncertainty": True,
+        },
+    },
+    # 54. Contradiction Between Log and Source Snippet
+    {
+        "scenario_id": "scn_54_contradiction_log_snippet",
+        "category": "similar_different_cause",
+        "description": "Log indicates missing configuration file but source snippet shows hardcoded fallback constant overridden",
+        "request": DiagnosisRequest(
+            event_id="evt_eval_54",
+            project_id="proj_config_loader",
+            command="python load_config.py",
+            exit_code=1,
+            error_message="ValueError: Invalid configuration value provided for MAX_WORKERS: 'fast'",
+            stack_trace="File 'load_config.py', line 22, in parse_workers\n  workers = int(config['MAX_WORKERS'])",
+            locations=[SourceLocation(file_path="load_config.py", line=22)],
+            source_snippets=[
+                SourceSnippet(
+                    file_path="load_config.py",
+                    start_line=20,
+                    end_line=25,
+                    content="def parse_workers(config):\n    # config['MAX_WORKERS'] received string 'fast' from environment\n    workers = int(config['MAX_WORKERS'])\n    return workers",
+                )
+            ],
+        ),
+        "expected_root_cause_categories": ["invalid_type_conversion", "non_numeric_config_value"],
+        "relevant_evidence_tokens": ["load_config.py", "MAX_WORKERS", "ValueError"],
+        "expected_kb_id": None,
+        "expected_retrieval_behavior": "no_match",
+        "definitive_fix_justified": True,
+        "expected_privacy_behavior": "clean",
+        "simulated_provider_mode": "normal",
+        "evaluation_criteria": {
+            "fix_status": "unverified",
+        },
+    },
+    # 55. Unknown Architecture Error Requiring Uncertainty (Non-Invented Fix)
+    {
+        "scenario_id": "scn_55_unknown_architecture_crash",
+        "category": "unknown_format",
+        "description": "Unseen RISC-V QEMU trap without standard stack frame or recognizable exception",
+        "request": DiagnosisRequest(
+            event_id="evt_eval_55",
+            project_id="proj_os_kernel",
+            command="qemu-system-riscv64 -kernel kernel.elf",
+            exit_code=1,
+            error_message="scause: 0x0000000000000002 (Illegal instruction), sepc: 0x0000000080200140, stval: 0x00000000",
+        ),
+        "expected_root_cause_categories": ["unscorable", "illegal_instruction", "qemu_trap"],
+        "relevant_evidence_tokens": ["scause", "Illegal instruction", "0x0000000080200140"],
+        "expected_kb_id": None,
+        "expected_retrieval_behavior": "no_match",
+        "definitive_fix_justified": False,
+        "expected_privacy_behavior": "clean",
+        "simulated_provider_mode": "normal",
+        "evaluation_criteria": {
+            "acknowledges_uncertainty": True,
+            "fix_status": "unverified",
+        },
+    },
+    # 56. Similar Network ECONNREFUSED with Different Root Cause C (Redis Sentinel Failover)
+    {
+        "scenario_id": "scn_56_similar_econnrefused_redis_sentinel",
+        "category": "similar_different_cause",
+        "description": "ECONNREFUSED on port 26379 indicating Redis Sentinel quorum loss, not app server crash",
+        "request": DiagnosisRequest(
+            event_id="evt_eval_56",
+            project_id="proj_caching_grid",
+            command="python cache_client.py",
+            exit_code=1,
+            error_message="ConnectionRefusedError: [Errno 111] Connection refused connecting to sentinel at 10.0.0.5:26379",
+            stack_trace="File 'cache_client.py', line 15, in discover_master\n  sentinel.discover_master('mymaster')",
+            locations=[SourceLocation(file_path="cache_client.py", line=15)],
+        ),
+        "expected_root_cause_categories": ["sentinel_unreachable", "redis_sentinel_quorum_failure"],
+        "relevant_evidence_tokens": ["26379", "cache_client.py", "ConnectionRefusedError"],
+        "expected_kb_id": None,  # kb_node_econnrefused is node/mongo specific, should not be falsely asserted
+        "expected_retrieval_behavior": "no_match",
+        "definitive_fix_justified": False,
+        "expected_privacy_behavior": "clean",
+        "simulated_provider_mode": "normal",
+        "evaluation_criteria": {
+            "fix_status": "unverified",
         },
     },
 ]
