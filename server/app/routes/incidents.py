@@ -14,6 +14,8 @@ from app.schemas.incident import (
     IncidentCreate,
     IncidentEmbeddingResponse,
     IncidentResponse,
+    VectorSearchMatchItem,
+    VectorSearchStatusResponse,
 )
 from app.schemas.pagination import PaginatedResponse
 from app.schemas import ResponseEnvelope
@@ -37,6 +39,49 @@ router = APIRouter(prefix="/incidents", tags=["Incidents"])
 async def get_embedding_provider_readiness_endpoint():
     status_resp = embedding_service.check_embedding_provider_readiness()
     return ResponseEnvelope[EmbeddingProviderStatusResponse](success=True, data=status_resp, error=None)
+
+
+@router.get(
+    "/vector-search/status",
+    response_model=ResponseEnvelope[VectorSearchStatusResponse],
+    summary="Inspect MongoDB Atlas Vector Search index status and queryability safely",
+)
+async def get_vector_search_status_endpoint(
+    db: Database = Depends(get_database),
+):
+    status_resp = embedding_service.get_atlas_vector_index_status(db)
+    return ResponseEnvelope[VectorSearchStatusResponse](success=True, data=status_resp, error=None)
+
+
+@router.post(
+    "/search/vector",
+    response_model=ResponseEnvelope[List[VectorSearchMatchItem]],
+    summary="Semantic vector retrieval across incidents with strict tenant isolation",
+)
+async def vector_search_incidents_endpoint(
+    query_text: str = Query(..., min_length=1, description="Diagnostic text or error description to embed"),
+    project_id: str = Query(..., min_length=1, description="Active project ID"),
+    allow_cross_project: bool = Query(default=False, description="Search public cross-project precedents"),
+    has_cross_project_read: bool = Query(default=False, description="Server grant permitting cross-project memory read"),
+    limit: int = Query(default=5, ge=1, le=50, description="Max matches to return"),
+    min_score: float = Query(default=0.50, ge=0.0, le=1.0, description="Minimum cosine similarity threshold"),
+    db: Database = Depends(get_database),
+):
+    query_res = embedding_service.generate_query_embedding(query_text)
+    matches = embedding_service.vector_search_incidents(
+        db=db,
+        query_vector=query_res.vector,
+        project_id=project_id,
+        allow_cross_project=allow_cross_project,
+        has_cross_project_read=has_cross_project_read,
+        limit=limit,
+        min_score=min_score,
+    )
+    return ResponseEnvelope[List[VectorSearchMatchItem]](
+        success=True,
+        data=[VectorSearchMatchItem(**m) for m in matches],
+        error=None,
+    )
 
 
 @router.post(

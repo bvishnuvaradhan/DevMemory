@@ -297,4 +297,11 @@ def init_indexes(db: Database) -> None:
     except Exception as exc:
         logger.warning("Index error on performance_baselines: %s", exc)
 
+    # 9. Atlas Vector Search index on incidents
+    try:
+        from app.services.embedding_service import ensure_atlas_vector_index
+        ensure_atlas_vector_index(db)
+    except Exception as exc:
+        logger.debug("Atlas vector index check skipped or unsupported: %s", exc)
+
     logger.info("MongoDB indexes and collection validators verified successfully.")

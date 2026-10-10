@@ -28,8 +28,14 @@ from typing import Any, Dict, List, Optional
 import urllib.error
 import urllib.request
 from pymongo.database import Database
+from pymongo.errors import OperationFailure
+try:
+    from pymongo.operations import SearchIndexModel
+except ImportError:
+    SearchIndexModel = None  # type: ignore
 
 from ai_engine.privacy import redact_secrets, sanitize_file_path
+from ai_engine.schemas import FixVerificationStatus
 from ai_engine.vector import (
     ConfigurableDenseEmbeddingProvider,
     DeterministicEmbeddingProvider,
@@ -38,6 +44,8 @@ from ai_engine.vector import (
     EmbeddingResult,
     EmbeddingStatus,
     InvalidVectorError,
+    VectorSearchAdapter,
+    VectorSearchResult,
     build_embedding_text,
     get_configured_embedding_provider,
     validate_and_normalize_vector,
@@ -47,6 +55,8 @@ from app.schemas.incident import (
     EmbeddingBackfillResponse,
     EmbeddingProviderStatusResponse,
     IncidentEmbeddingResponse,
+    VectorSearchMatchItem,
+    VectorSearchStatusResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -820,3 +830,593 @@ def backfill_incident_embeddings(
         embedding_model=model_name,
         embedding_dimension=target_dim,
     )
+
+
+def get_atlas_vector_index_status(
+    db: Database,
+    index_name: Optional[str] = None,
+) -> VectorSearchStatusResponse:
+    """Inspect Atlas Search index status safely without leaking credentials.
+
+    Returns:
+        VectorSearchStatusResponse with verified status (READY, PENDING, UNINDEXED, etc.)
+        and queryable readiness indicator.
+    """
+    settings = get_settings()
+    target_idx = index_name or os.getenv("MONGODB_VECTOR_INDEX") or settings.MONGODB_VECTOR_INDEX or "idx_incidents_vector"
+    v_field = os.getenv("MONGODB_VECTOR_FIELD") or settings.MONGODB_VECTOR_FIELD or "embedding"
+    dimension = resolve_target_dimension()
+    p_type = (os.getenv("DEVMEMORY_EMBEDDING_PROVIDER") or settings.DEVMEMORY_EMBEDDING_PROVIDER or "voyage").lower()
+
+    try:
+        if hasattr(db.incidents, "list_search_indexes"):
+            indexes = list(db.incidents.list_search_indexes())
+            for idx in indexes:
+                if idx.get("name") == target_idx:
+                    status = str(idx.get("status", "UNKNOWN")).upper()
+                    queryable = bool(idx.get("queryable", False))
+                    msg = (
+                        "Atlas vector search index is READY and queryable."
+                        if queryable
+                        else f"Atlas vector search index status is {status} (queryable={queryable}); fallback in-memory cosine ranking is active."
+                    )
+                    return VectorSearchStatusResponse(
+                        index_name=target_idx,
+                        status=status,
+                        queryable=queryable,
+                        vector_field=v_field,
+                        target_dimension=dimension,
+                        provider_type=p_type,
+                        fallback_available=True,
+                        message=msg,
+                    )
+
+        return VectorSearchStatusResponse(
+            index_name=target_idx,
+            status="DOES_NOT_EXIST",
+            queryable=False,
+            vector_field=v_field,
+            target_dimension=dimension,
+            provider_type=p_type,
+            fallback_available=True,
+            message=f"Atlas vector search index '{target_idx}' not found on incidents collection; fallback in-memory cosine ranking is active.",
+        )
+    except Exception as exc:
+        safe_err = sanitize_secret_text(str(exc))
+        logger.warning("Error inspecting Atlas search indexes: %s", safe_err)
+        return VectorSearchStatusResponse(
+            index_name=target_idx,
+            status="UNAVAILABLE",
+            queryable=False,
+            vector_field=v_field,
+            target_dimension=dimension,
+            provider_type=p_type,
+            fallback_available=True,
+            message=f"Atlas search index inspection unavailable ({safe_err}); fallback in-memory cosine ranking is active.",
+        )
+
+
+def ensure_atlas_vector_index(
+    db: Database,
+    index_name: Optional[str] = None,
+    dimension: Optional[int] = None,
+    vector_field: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Idempotently ensure Atlas vector search index exists on the incidents collection.
+
+    Guarantees:
+    - Never drops or overwrites existing compatible indexes.
+    - Accurately reports creation and status without misrepresenting pending indexing.
+    - Sets vector dimension and cosine similarity metric with project/is_public filter fields.
+    """
+    settings = get_settings()
+    target_idx = index_name or os.getenv("MONGODB_VECTOR_INDEX") or settings.MONGODB_VECTOR_INDEX or "idx_incidents_vector"
+    v_field = vector_field or os.getenv("MONGODB_VECTOR_FIELD") or settings.MONGODB_VECTOR_FIELD or "embedding"
+    target_dim = resolve_target_dimension(dimension)
+
+    # 1. Check existing search indexes
+    current_status = get_atlas_vector_index_status(db, target_idx)
+    if current_status.status in ("READY", "PENDING", "BUILDING"):
+        return {
+            "status": current_status.status,
+            "index_name": target_idx,
+            "queryable": current_status.queryable,
+            "action": "reused_existing",
+            "message": current_status.message,
+        }
+
+    # 2. Attempt creation if SearchIndexModel and create_search_index are available
+    if SearchIndexModel is None or not hasattr(db.incidents, "create_search_index"):
+        return {
+            "status": "UNSUPPORTED",
+            "index_name": target_idx,
+            "queryable": False,
+            "action": "skipped",
+            "message": "Atlas Search index creation not supported in current environment/driver.",
+        }
+
+    index_definition = {
+        "fields": [
+            {
+                "type": "vector",
+                "path": v_field,
+                "numDimensions": target_dim,
+                "similarity": "cosine",
+            },
+            {
+                "type": "filter",
+                "path": "project_id",
+            },
+            {
+                "type": "filter",
+                "path": "is_public",
+            },
+        ]
+    }
+
+    try:
+        model = SearchIndexModel(
+            definition=index_definition,
+            name=target_idx,
+            type="vectorSearch",
+        )
+        created_name = db.incidents.create_search_index(model=model)
+        logger.info("Atlas vector search index '%s' creation requested successfully.", created_name)
+        return {
+            "status": "PENDING",
+            "index_name": created_name,
+            "queryable": False,
+            "action": "created",
+            "message": f"Atlas search index '{created_name}' submitted; building asynchronously.",
+        }
+    except Exception as exc:
+        safe_err = sanitize_secret_text(str(exc))
+        logger.warning("Atlas search index creation failed or unsupported: %s", safe_err)
+        return {
+            "status": "FAILED",
+            "index_name": target_idx,
+            "queryable": False,
+            "action": "error",
+            "message": f"Search index creation failed ({safe_err}); fallback in-memory cosine ranking remains active.",
+        }
+
+
+class ProductionMongoVectorSearchAdapter:
+    """Production MongoDB Atlas Vector Search adapter with resilient in-memory cosine fallback.
+
+    Implements ai_engine.vector.VectorSearchAdapter protocol.
+
+    Guarantees:
+    1. Atlas Vector Search: Executes official $vectorSearch aggregation pipeline
+       when supported by MongoDB Atlas cluster and search index is queryable.
+    2. Resilient In-Memory Fallback: If $vectorSearch is unavailable (e.g. index pending,
+       unsupported tier, OperationFailure, or local/mock MongoDB), gracefully
+       falls back to in-memory cosine ranking of stored incident embeddings.
+    3. Strict Multi-Tenant Isolation: Enforces project_id boundaries and public visibility checks.
+    4. Vector Hygiene: Validates query vectors, rejects non-numeric or non-finite elements.
+    5. Secret Redaction: Redacts sensitive incident text and secrets from logs.
+    6. Unverified Fix Protection: Never exposes unverified or failed fixes as proven resolutions.
+    """
+
+    def __init__(
+        self,
+        db: Database,
+        index_name: Optional[str] = None,
+        vector_field: Optional[str] = None,
+        embedding_provider: Optional[EmbeddingProvider] = None,
+        timeout_ms: int = 2000,
+    ) -> None:
+        self.db = db
+        settings = get_settings()
+        self.index_name = (
+            index_name
+            or os.getenv("MONGODB_VECTOR_INDEX")
+            or settings.MONGODB_VECTOR_INDEX
+            or "idx_incidents_vector"
+        )
+        self.vector_field = (
+            vector_field
+            or os.getenv("MONGODB_VECTOR_FIELD")
+            or settings.MONGODB_VECTOR_FIELD
+            or "embedding"
+        )
+        self.embedding_provider = embedding_provider or get_active_embedding_provider()
+        self.timeout_ms = timeout_ms
+
+    def _validate_query_vector(self, query_vector: Any) -> Optional[List[float]]:
+        """Validate and normalize query vector; returns None if vector is empty, zero, or invalid."""
+        if not query_vector or not isinstance(query_vector, (list, tuple)):
+            return None
+        for v in query_vector:
+            if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
+                return None
+        sum_sq = sum(float(x) * float(x) for x in query_vector)
+        if sum_sq <= 0.0:
+            return None
+        # Unit-normalize query vector for standard cosine similarity
+        mag = math.sqrt(sum_sq)
+        return [float(x) / mag for x in query_vector]
+
+    def _parse_verification_status(self, raw: Any) -> FixVerificationStatus:
+        if isinstance(raw, FixVerificationStatus):
+            return raw
+        if not raw:
+            return FixVerificationStatus.UNVERIFIED
+        try:
+            return FixVerificationStatus(str(raw).lower())
+        except Exception:
+            return FixVerificationStatus.UNVERIFIED
+
+    def _cosine_similarity(self, a: List[float], b: List[float]) -> float:
+        """Calculate cosine similarity between unit or non-unit normalized vectors."""
+        if not a or not b or len(a) != len(b):
+            return 0.0
+        dot = sum(x * y for x, y in zip(a, b))
+        mag_b_sq = sum(y * y for y in b)
+        if mag_b_sq <= 0.0:
+            return 0.0
+        mag_b = math.sqrt(mag_b_sq)
+        sim = dot / mag_b if abs(mag_b - 1.0) > 1e-4 else dot
+        return max(0.0, min(1.0, sim))
+
+    def search_project_vectors(
+        self,
+        query_vector: List[float],
+        project_id: str,
+        limit: int = 5,
+        min_score: float = 0.50,
+    ) -> List[VectorSearchResult]:
+        """Search vector embeddings strictly within active project_id."""
+        norm_query = self._validate_query_vector(query_vector)
+        if not norm_query:
+            return []
+        limit = max(1, min(limit, 50))
+
+        # 1. Attempt Atlas $vectorSearch aggregation pipeline
+        pipeline = [
+            {
+                "$vectorSearch": {
+                    "index": self.index_name,
+                    "path": self.vector_field,
+                    "queryVector": norm_query,
+                    "numCandidates": limit * 10,
+                    "limit": limit,
+                    "filter": {"project_id": project_id},
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "incident_id": 1,
+                    "project_id": 1,
+                    "error_message": 1,
+                    "stack_trace": 1,
+                    "command": 1,
+                    "resolution_summary": 1,
+                    "verification_status": 1,
+                    "is_public": 1,
+                    "error_signature": 1,
+                    "score": {"$meta": "vectorSearchScore"},
+                }
+            },
+        ]
+
+        try:
+            cursor = self.db.incidents.aggregate(pipeline)
+            results: List[VectorSearchResult] = []
+            for doc in cursor:
+                # Strict tenant boundary verification
+                if doc.get("project_id") != project_id:
+                    continue
+                score = float(doc.get("score", 0.0))
+                if score >= min_score:
+                    v_status = self._parse_verification_status(doc.get("verification_status"))
+                    res_summary = (
+                        doc.get("resolution_summary")
+                        if v_status == FixVerificationStatus.VERIFIED
+                        else None
+                    )
+                    results.append(
+                        VectorSearchResult(
+                            incident_id=doc.get("incident_id", "incident"),
+                            project_id=project_id,
+                            error_message=doc.get("error_message", ""),
+                            similarity_score=round(score, 4),
+                            stack_trace=doc.get("stack_trace"),
+                            command=doc.get("command"),
+                            resolution_summary=res_summary,
+                            verification_status=v_status,
+                            is_public=bool(doc.get("is_public", False)),
+                            error_signature=doc.get("error_signature"),
+                        )
+                    )
+            if results:
+                return results
+            # When Atlas $vectorSearch returns no candidates (e.g. due to asynchronous indexing delay or tier restrictions),
+            # fall back to in-memory cosine ranking using the authorized candidate scope
+            return self._in_memory_project_vector_search(norm_query, project_id, limit, min_score)
+        except Exception as exc:
+            safe_err = sanitize_secret_text(str(exc))
+            logger.debug(
+                "Atlas $vectorSearch unavailable for project '%s' (%s); using in-memory cosine fallback.",
+                project_id,
+                safe_err,
+            )
+            return self._in_memory_project_vector_search(norm_query, project_id, limit, min_score)
+
+    def search_cross_project_vectors(
+        self,
+        query_vector: List[float],
+        requesting_project_id: str,
+        limit: int = 5,
+        min_score: float = 0.50,
+    ) -> List[VectorSearchResult]:
+        """Search vector embeddings across other authorized, public projects."""
+        norm_query = self._validate_query_vector(query_vector)
+        if not norm_query:
+            return []
+        limit = max(1, min(limit, 50))
+
+        pipeline = [
+            {
+                "$vectorSearch": {
+                    "index": self.index_name,
+                    "path": self.vector_field,
+                    "queryVector": norm_query,
+                    "numCandidates": limit * 10,
+                    "limit": limit,
+                    "filter": {
+                        "project_id": {"$ne": requesting_project_id},
+                        "is_public": True,
+                    },
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "incident_id": 1,
+                    "project_id": 1,
+                    "error_message": 1,
+                    "stack_trace": 1,
+                    "command": 1,
+                    "resolution_summary": 1,
+                    "verification_status": 1,
+                    "is_public": 1,
+                    "disclose_project_id": 1,
+                    "error_signature": 1,
+                    "score": {"$meta": "vectorSearchScore"},
+                }
+            },
+        ]
+
+        try:
+            cursor = self.db.incidents.aggregate(pipeline)
+            results: List[VectorSearchResult] = []
+            for doc in cursor:
+                # Cross-project authorization & privacy checks
+                if doc.get("project_id") == requesting_project_id or not doc.get("is_public", False):
+                    continue
+                score = float(doc.get("score", 0.0))
+                if score >= min_score:
+                    cand_proj = doc.get("project_id")
+                    disclosed_proj = cand_proj if doc.get("disclose_project_id", False) else None
+                    v_status = self._parse_verification_status(doc.get("verification_status"))
+                    res_summary = (
+                        doc.get("resolution_summary")
+                        if v_status == FixVerificationStatus.VERIFIED
+                        else None
+                    )
+                    results.append(
+                        VectorSearchResult(
+                            incident_id=doc.get("incident_id", "cross_incident"),
+                            project_id=disclosed_proj,
+                            error_message=doc.get("error_message", ""),
+                            similarity_score=round(score, 4),
+                            stack_trace=doc.get("stack_trace"),
+                            command=doc.get("command"),
+                            resolution_summary=res_summary,
+                            verification_status=v_status,
+                            is_public=True,
+                            error_signature=doc.get("error_signature"),
+                        )
+                    )
+            if results:
+                return results
+            return self._in_memory_cross_project_vector_search(
+                norm_query, requesting_project_id, limit, min_score
+            )
+        except Exception as exc:
+            safe_err = sanitize_secret_text(str(exc))
+            logger.debug(
+                "Atlas $vectorSearch unavailable for cross-project (%s); using in-memory cosine fallback.",
+                safe_err,
+            )
+            return self._in_memory_cross_project_vector_search(
+                norm_query, requesting_project_id, limit, min_score
+            )
+
+    def _in_memory_project_vector_search(
+        self,
+        norm_query: List[float],
+        project_id: str,
+        limit: int,
+        min_score: float,
+    ) -> List[VectorSearchResult]:
+        """In-memory cosine ranking across stored project embeddings."""
+        cursor = self.db.incidents.find(
+            {"project_id": project_id, self.vector_field: {"$exists": True, "$type": "array"}},
+            {
+                "_id": 0,
+                "incident_id": 1,
+                "project_id": 1,
+                "error_message": 1,
+                "stack_trace": 1,
+                "command": 1,
+                "resolution_summary": 1,
+                "verification_status": 1,
+                "is_public": 1,
+                "error_signature": 1,
+                self.vector_field: 1,
+            },
+        )
+        candidates = []
+        for doc in cursor:
+            stored_vec = doc.get(self.vector_field)
+            if not stored_vec or len(stored_vec) != len(norm_query):
+                continue
+            score = self._cosine_similarity(norm_query, stored_vec)
+            if score >= min_score:
+                v_status = self._parse_verification_status(doc.get("verification_status"))
+                res_summary = (
+                    doc.get("resolution_summary")
+                    if v_status == FixVerificationStatus.VERIFIED
+                    else None
+                )
+                candidates.append(
+                    (
+                        score,
+                        VectorSearchResult(
+                            incident_id=doc.get("incident_id", "incident"),
+                            project_id=project_id,
+                            error_message=doc.get("error_message", ""),
+                            similarity_score=round(score, 4),
+                            stack_trace=doc.get("stack_trace"),
+                            command=doc.get("command"),
+                            resolution_summary=res_summary,
+                            verification_status=v_status,
+                            is_public=bool(doc.get("is_public", False)),
+                            error_signature=doc.get("error_signature"),
+                        ),
+                    )
+                )
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return [c[1] for c in candidates[:limit]]
+
+    def _in_memory_cross_project_vector_search(
+        self,
+        norm_query: List[float],
+        requesting_project_id: str,
+        limit: int,
+        min_score: float,
+    ) -> List[VectorSearchResult]:
+        """In-memory cosine ranking across stored public cross-project embeddings."""
+        cursor = self.db.incidents.find(
+            {
+                "project_id": {"$ne": requesting_project_id},
+                "is_public": True,
+                self.vector_field: {"$exists": True, "$type": "array"},
+            },
+            {
+                "_id": 0,
+                "incident_id": 1,
+                "project_id": 1,
+                "error_message": 1,
+                "stack_trace": 1,
+                "command": 1,
+                "resolution_summary": 1,
+                "verification_status": 1,
+                "is_public": 1,
+                "disclose_project_id": 1,
+                "error_signature": 1,
+                self.vector_field: 1,
+            },
+        )
+        candidates = []
+        for doc in cursor:
+            stored_vec = doc.get(self.vector_field)
+            if not stored_vec or len(stored_vec) != len(norm_query):
+                continue
+            score = self._cosine_similarity(norm_query, stored_vec)
+            if score >= min_score:
+                cand_proj = doc.get("project_id")
+                disclosed_proj = cand_proj if doc.get("disclose_project_id", False) else None
+                v_status = self._parse_verification_status(doc.get("verification_status"))
+                res_summary = (
+                    doc.get("resolution_summary")
+                    if v_status == FixVerificationStatus.VERIFIED
+                    else None
+                )
+                candidates.append(
+                    (
+                        score,
+                        VectorSearchResult(
+                            incident_id=doc.get("incident_id", "cross_incident"),
+                            project_id=disclosed_proj,
+                            error_message=doc.get("error_message", ""),
+                            similarity_score=round(score, 4),
+                            stack_trace=doc.get("stack_trace"),
+                            command=doc.get("command"),
+                            resolution_summary=res_summary,
+                            verification_status=v_status,
+                            is_public=True,
+                            error_signature=doc.get("error_signature"),
+                        ),
+                    )
+                )
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return [c[1] for c in candidates[:limit]]
+
+
+def vector_search_incidents(
+    db: Database,
+    query_vector: List[float],
+    project_id: Optional[str] = None,
+    allow_cross_project: bool = False,
+    has_cross_project_read: bool = False,
+    limit: int = 5,
+    min_score: float = 0.50,
+    index_name: Optional[str] = None,
+    vector_field: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Execute unified vector retrieval against MongoDB Atlas with fallback and tenant isolation.
+
+    Returns:
+        List of matching incident summaries formatted for API responses.
+    """
+    adapter = ProductionMongoVectorSearchAdapter(
+        db=db,
+        index_name=index_name,
+        vector_field=vector_field,
+    )
+    results: List[VectorSearchResult] = []
+
+    if project_id:
+        proj_results = adapter.search_project_vectors(
+            query_vector=query_vector,
+            project_id=project_id,
+            limit=limit,
+            min_score=min_score,
+        )
+        results.extend(proj_results)
+
+    if allow_cross_project and has_cross_project_read and project_id:
+        cross_results = adapter.search_cross_project_vectors(
+            query_vector=query_vector,
+            requesting_project_id=project_id,
+            limit=limit,
+            min_score=min_score,
+        )
+        results.extend(cross_results)
+
+    results.sort(key=lambda r: r.similarity_score, reverse=True)
+    top_results = results[:limit]
+
+    return [
+        {
+            "incident_id": r.incident_id,
+            "project_id": r.project_id,
+            "error_message": r.error_message,
+            "similarity_score": r.similarity_score,
+            "command": r.command,
+            "stack_trace": r.stack_trace,
+            "resolution_summary": r.resolution_summary,
+            "verification_status": (
+                r.verification_status.value
+                if hasattr(r.verification_status, "value")
+                else str(r.verification_status)
+            ),
+            "is_public": r.is_public,
+            "source": "vector_search",
+        }
+        for r in top_results
+    ]

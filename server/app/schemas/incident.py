@@ -78,3 +78,31 @@ class EmbeddingProviderStatusResponse(BaseModel):
     is_live: bool
     reason: Optional[str] = None
     masked_credential: Optional[str] = None
+
+
+class VectorSearchStatusResponse(BaseModel):
+    """Schema for Atlas Vector Search readiness and index status."""
+
+    index_name: str
+    status: str
+    queryable: bool
+    vector_field: str
+    target_dimension: int
+    provider_type: str
+    fallback_available: bool = True
+    message: Optional[str] = None
+
+
+class VectorSearchMatchItem(BaseModel):
+    """Schema for individual semantic vector match."""
+
+    incident_id: str
+    project_id: Optional[str] = None
+    error_message: str
+    similarity_score: float
+    command: Optional[str] = None
+    stack_trace: Optional[str] = None
+    resolution_summary: Optional[str] = None
+    verification_status: str = "unverified"
+    is_public: bool = False
+    source: str = "vector_search"

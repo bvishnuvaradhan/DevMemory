@@ -123,6 +123,10 @@ class Settings(BaseSettings):
         default="embedding",
         description="Document field where embedding vector is persisted",
     )
+    MONGODB_VECTOR_INDEX: str = Field(
+        default="idx_incidents_vector",
+        description="Atlas Search vector index name",
+    )
 
     def model_post_init(self, __context: Any) -> None:
         """Synchronize configuration to os.environ if not already present, preserving precedence."""
@@ -148,6 +152,8 @@ class Settings(BaseSettings):
             os.environ["DEVMEMORY_VECTOR_DIMENSION"] = str(self.DEVMEMORY_VECTOR_DIMENSION)
         if self.MONGODB_VECTOR_FIELD and not os.getenv("MONGODB_VECTOR_FIELD"):
             os.environ["MONGODB_VECTOR_FIELD"] = self.MONGODB_VECTOR_FIELD
+        if self.MONGODB_VECTOR_INDEX and not os.getenv("MONGODB_VECTOR_INDEX"):
+            os.environ["MONGODB_VECTOR_INDEX"] = self.MONGODB_VECTOR_INDEX
 
 
 @lru_cache

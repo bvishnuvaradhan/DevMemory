@@ -30,6 +30,10 @@ from app.schemas.diagnosis import (
     MatchedMemoryRef,
 )
 from app.services import diagnosis_service
+from app.services.embedding_service import (
+    ProductionMongoVectorSearchAdapter,
+    get_active_embedding_provider,
+)
 from app.services.root_cause_analyzer import refine_root_cause_diagnosis
 
 logger = logging.getLogger(__name__)
@@ -466,13 +470,27 @@ def generate_and_store_incident_diagnosis(
 
         repo = MongoIncidentRepository(db)
 
-        # Run AI diagnosis orchestrator
+        # Wire production vector adapter and active embedding provider
+        settings = get_settings()
+        v_idx = os.getenv("MONGODB_VECTOR_INDEX") or settings.MONGODB_VECTOR_INDEX or "idx_incidents_vector"
+        v_field = os.getenv("MONGODB_VECTOR_FIELD") or settings.MONGODB_VECTOR_FIELD or "embedding"
+        active_embedding_prov = get_active_embedding_provider()
+        vector_adapter = ProductionMongoVectorSearchAdapter(
+            db=db,
+            index_name=v_idx,
+            vector_field=v_field,
+            embedding_provider=active_embedding_prov,
+        )
+
+        # Run AI diagnosis orchestrator with hybrid vector retrieval
         ai_resp = diagnose_error(
             request=req,
             auth_context=auth,
             repository=repo,
             threshold=threshold,
             disable_external_inference=disable_external_inference,
+            vector_adapter=vector_adapter,
+            embedding_provider=active_embedding_prov,
         )
 
         # Map AI response to backend diagnosis schema
