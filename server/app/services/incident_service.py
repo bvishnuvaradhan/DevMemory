@@ -114,6 +114,40 @@ def create_incident_direct(db: Database, payload: IncidentCreate) -> IncidentRes
     )
 
 
+def _format_historical_matches_from_matched_memory(matched_memory: list[dict]) -> list[dict]:
+    """Format matched memory items into normalized historical match records."""
+    formatted = []
+    for m in matched_memory or []:
+        src_type = m.get("source_type", "project_memory")
+        is_gk = bool(
+            src_type in ("general_knowledge", "knowledge_base")
+            or str(m.get("source_id", "")).startswith("kb_")
+        )
+        is_cross = bool(
+            m.get("is_cross_project")
+            or src_type in ("cross_project", "public_precedent")
+        )
+        prov = "knowledge_base" if is_gk else ("public_precedent" if is_cross else "project_memory")
+        src_proj = (
+            "Curated Knowledge Base"
+            if is_gk
+            else (m.get("project_id") or ("Cross-Project Precedent" if is_cross else "Current Project Memory"))
+        )
+        formatted.append({
+            "id": m.get("source_id", "match"),
+            "source_id": m.get("source_id", "match"),
+            "source_type": prov,
+            "is_cross_project": is_cross,
+            "is_general_knowledge": is_gk,
+            "source_project": src_proj,
+            "verified": bool(m.get("verification_status") == "verified"),
+            "similarity_score": m.get("similarity_score", 1.0) if m.get("similarity_score") is not None else 1.0,
+            "match_reason": m.get("relevance_reason") or "Historical precedent match",
+            "sanitized_fix_summary": m.get("resolution_summary"),
+        })
+    return formatted
+
+
 def _enrich_incidents_with_diagnoses(db: Database, docs: list[dict]) -> list[dict]:
     """Batch-enrich incident documents with their latest diagnosis records from db.diagnoses."""
     if not docs:
@@ -133,18 +167,35 @@ def _enrich_incidents_with_diagnoses(db: Database, docs: list[dict]) -> list[dic
         if iid and iid not in diag_map:  # Keep newest since sorted DESCENDING
             diag_map[iid] = diag
 
+    # Batch-enrich latest fix outcome from db.fix_outcomes
+    fix_cursor = db.fix_outcomes.find(
+        {"incident_id": {"$in": incident_ids}},
+        {"_id": 0},
+    ).sort("created_at", DESCENDING)
+
+    fix_map: dict[str, dict] = {}
+    for fix in fix_cursor:
+        iid = fix.get("incident_id")
+        if iid and iid not in fix_map:  # Keep newest since sorted DESCENDING
+            fix_map[iid] = fix
+
     for d in docs:
         iid = d.get("incident_id")
         if iid and iid in diag_map:
-            d["ai_diagnosis"] = diag_map[iid]
+            diag = diag_map[iid]
+            d["ai_diagnosis"] = diag
+            if diag.get("matched_memory"):
+                d["historical_matches"] = _format_historical_matches_from_matched_memory(diag["matched_memory"])
             if d.get("diagnosis_status") == "pending":
                 d["diagnosis_status"] = "diagnosed"
+        if iid and iid in fix_map:
+            d["fix_outcome"] = fix_map[iid]
 
     return docs
 
 
 def get_incident(db: Database, incident_id: str) -> Optional[IncidentResponse]:
-    """Retrieve an incident by its unique ID enriched with its latest diagnosis."""
+    """Retrieve an incident by its unique ID enriched with its latest diagnosis and fix outcome."""
     doc = db.incidents.find_one({"incident_id": incident_id}, {"_id": 0})
     if not doc:
         return None
@@ -157,8 +208,19 @@ def get_incident(db: Database, incident_id: str) -> Optional[IncidentResponse]:
     )
     if diag:
         doc["ai_diagnosis"] = diag
+        if diag.get("matched_memory"):
+            doc["historical_matches"] = _format_historical_matches_from_matched_memory(diag["matched_memory"])
         if doc.get("diagnosis_status") == "pending":
             doc["diagnosis_status"] = "diagnosed"
+
+    # Attach latest fix outcome if present in db.fix_outcomes
+    fix = db.fix_outcomes.find_one(
+        {"incident_id": incident_id},
+        {"_id": 0},
+        sort=[("created_at", DESCENDING)],
+    )
+    if fix:
+        doc["fix_outcome"] = fix
 
     return IncidentResponse(**doc)
 

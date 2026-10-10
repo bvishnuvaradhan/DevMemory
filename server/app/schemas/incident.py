@@ -42,6 +42,10 @@ class IncidentResponse(BaseModel):
     embedded_at: Optional[datetime] = None
     # AI Diagnosis payload
     ai_diagnosis: Optional[Dict[str, Any]] = None
+    # Historical precedents and memory matches
+    historical_matches: Optional[list[Dict[str, Any]]] = None
+    # Latest fix outcome if present
+    fix_outcome: Optional[Dict[str, Any]] = None
 
 
 class IncidentEmbeddingResponse(BaseModel):

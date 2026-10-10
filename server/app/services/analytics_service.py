@@ -7,6 +7,8 @@ from pymongo.database import Database
 
 from app.schemas.analytics import (
     CrossProjectIncidentSummary,
+    GeneralKnowledgeMatchItem,
+    HistoricalMatchUnifiedItem,
     IncidentHistoryResponse,
     ProjectAnalyticsResponse,
     RecurringErrorItem,
@@ -165,7 +167,7 @@ def get_incident_history(
     incident_id: str,
     limit: int = 10,
 ) -> IncidentHistoryResponse:
-    """Retrieve historical incidents partitioned into same-project and privacy-sanitized cross-project results."""
+    """Retrieve historical incidents partitioned into same-project, cross-project, and general knowledge results."""
     # 1. Retrieve target incident
     current = db.incidents.find_one({"incident_id": incident_id}, {"_id": 0})
     if not current:
@@ -174,11 +176,11 @@ def get_incident_history(
             detail=f"Incident with ID '{incident_id}' not found.",
         )
 
-    target_sig = current["error_signature"]
+    target_sig = current.get("error_signature") or ""
     target_proj = current["project_id"]
     limit = max(1, min(limit, 50))
 
-    # 2. Query same-project historical matches (excluding self)
+    # 2. Query same-project exact matches (strictly excluding self)
     same_proj_cursor = (
         db.incidents.find(
             {
@@ -191,9 +193,13 @@ def get_incident_history(
         .sort("created_at", DESCENDING)
         .limit(limit)
     )
-    same_project_matches = [IncidentResponse(**doc) for doc in same_proj_cursor]
+    seen_same_ids = set()
+    same_project_matches = []
+    for doc in same_proj_cursor:
+        seen_same_ids.add(doc["incident_id"])
+        same_project_matches.append(IncidentResponse(**doc))
 
-    # 3. Query cross-project matches (strictly from other projects)
+    # 3. Query cross-project exact matches (strictly from other projects)
     cross_proj_cursor = (
         db.incidents.find(
             {
@@ -205,11 +211,10 @@ def get_incident_history(
         .sort("created_at", DESCENDING)
         .limit(limit)
     )
-
-    # Sanitize and construct cross-project summaries:
-    # Explicitly omit private local paths, snippets, and unredacted sensitive tokens
+    seen_cross_ids = set()
     cross_project_matches = []
     for doc in cross_proj_cursor:
+        seen_cross_ids.add(doc["incident_id"])
         sanitized_msg = sanitize_error_message(doc.get("error_message", ""))
         summary = CrossProjectIncidentSummary(
             incident_id=doc["incident_id"],
@@ -223,11 +228,176 @@ def get_incident_history(
         )
         cross_project_matches.append(summary)
 
+    # 4. Multi-tier hybrid memory retrieval (Lexical + Exact + Vector with Fallback + General Knowledge)
+    general_knowledge_matches: list[GeneralKnowledgeMatchItem] = []
+    hybrid_all_matches = []
+    try:
+        from app.services.ai_service import build_ai_diagnosis_payloads, MongoIncidentRepository
+        from app.services.embedding_service import get_active_embedding_provider, ProductionMongoVectorSearchAdapter
+        from ai_engine.retrieval import retrieve_memory
+
+        req, auth = build_ai_diagnosis_payloads(current, allow_cross_project=True, has_cross_project_read=True)
+        repo = MongoIncidentRepository(db, current_incident_id=incident_id)
+        emb_prov = get_active_embedding_provider()
+        v_adapter = ProductionMongoVectorSearchAdapter(db=db, embedding_provider=emb_prov)
+
+        ret_res = retrieve_memory(
+            request=req,
+            auth_context=auth,
+            repository=repo,
+            threshold=0.40,
+            vector_adapter=v_adapter,
+            embedding_provider=emb_prov,
+        )
+        hybrid_all_matches = ret_res.all_ranked_matches
+
+        # General Knowledge
+        for gm in ret_res.general_matches:
+            raw_res = (gm.resolution_summary or "").replace("Suggested resolutions:", "")
+            res_steps = [s.strip() for s in raw_res.split(";") if s.strip()]
+            title = gm.explanation.split(":")[0] if ":" in gm.explanation else gm.incident_id
+            general_knowledge_matches.append(
+                GeneralKnowledgeMatchItem(
+                    kb_id=gm.incident_id,
+                    title=title,
+                    explanation=gm.explanation,
+                    similarity_score=round(gm.similarity_score, 4),
+                    suggested_resolutions=res_steps,
+                    match_source="general_knowledge",
+                )
+            )
+
+        # Enrich same-project matches with semantic/lexical matches from project memory
+        for pm in ret_res.project_matches:
+            if pm.incident_id != incident_id and pm.incident_id not in seen_same_ids:
+                pdoc = db.incidents.find_one({"incident_id": pm.incident_id}, {"_id": 0})
+                if pdoc and len(same_project_matches) < limit:
+                    seen_same_ids.add(pm.incident_id)
+                    same_project_matches.append(IncidentResponse(**pdoc))
+
+        # Enrich cross-project matches with semantic/lexical matches strictly respecting is_public
+        for xm in ret_res.cross_project_matches:
+            if xm.incident_id != incident_id and xm.incident_id not in seen_cross_ids:
+                xdoc = db.incidents.find_one({"incident_id": xm.incident_id}, {"_id": 0})
+                if xdoc and xdoc.get("is_public", False) and len(cross_project_matches) < limit:
+                    seen_cross_ids.add(xm.incident_id)
+                    s_msg = sanitize_error_message(xdoc.get("error_message", ""))
+                    cross_project_matches.append(
+                        CrossProjectIncidentSummary(
+                            incident_id=xdoc["incident_id"],
+                            project_id=xdoc["project_id"],
+                            error_type=xdoc["error_type"],
+                            error_signature=xdoc["error_signature"],
+                            error_message=s_msg,
+                            created_at=xdoc["created_at"],
+                            diagnosis_summary=xdoc.get("diagnosis_summary"),
+                            fix_status=xdoc.get("fix_status"),
+                        )
+                    )
+    except Exception:
+        # Fault isolation: retrieval engine errors must not break history retrieval
+        pass
+
+    # 5. Consolidated Unified historical_matches for direct frontend rendering
+    historical_matches: list[HistoricalMatchUnifiedItem] = []
+    seen_unified_ids = set()
+
+    for m in hybrid_all_matches:
+        mid = m.incident_id
+        if mid == incident_id or mid in seen_unified_ids:
+            continue
+        seen_unified_ids.add(mid)
+        m_src = getattr(m.match_source, "value", str(m.match_source))
+        is_gk = (m_src == "general_knowledge" or str(mid).startswith("kb_"))
+        is_cross = (m_src == "cross_project")
+        prov = "knowledge_base" if is_gk else ("public_precedent" if is_cross else "project_memory")
+        src_p = (
+            "Curated Knowledge Base"
+            if is_gk
+            else (m.project_id or ("Cross-Project Precedent" if is_cross else target_proj))
+        )
+        v_stat = getattr(m.verification_status, "value", str(m.verification_status))
+        is_ver = (v_stat == "verified")
+        fix_sum = m.resolution_summary if (is_ver or is_gk) else None
+        historical_matches.append(
+            HistoricalMatchUnifiedItem(
+                id=mid,
+                source_id=mid,
+                source_type=prov,
+                is_cross_project=is_cross,
+                is_general_knowledge=is_gk,
+                source_project=src_p,
+                verified=is_ver,
+                similarity_score=round(m.similarity_score, 4),
+                match_reason=m.explanation,
+                sanitized_fix_summary=fix_sum,
+            )
+        )
+
+    # Ensure same_project_matches are represented in unified list
+    for sp in same_project_matches:
+        if sp.incident_id not in seen_unified_ids:
+            seen_unified_ids.add(sp.incident_id)
+            historical_matches.append(
+                HistoricalMatchUnifiedItem(
+                    id=sp.incident_id,
+                    source_id=sp.incident_id,
+                    source_type="project_memory",
+                    is_cross_project=False,
+                    is_general_knowledge=False,
+                    source_project=target_proj,
+                    verified=False,
+                    similarity_score=1.0,
+                    match_reason=f"Exact error signature match ({target_sig})",
+                    sanitized_fix_summary=None,
+                )
+            )
+
+    # Ensure cross_project_matches are represented in unified list
+    for cp in cross_project_matches:
+        if cp.incident_id not in seen_unified_ids:
+            seen_unified_ids.add(cp.incident_id)
+            historical_matches.append(
+                HistoricalMatchUnifiedItem(
+                    id=cp.incident_id,
+                    source_id=cp.incident_id,
+                    source_type="public_precedent",
+                    is_cross_project=True,
+                    is_general_knowledge=False,
+                    source_project=cp.project_id,
+                    verified=bool(cp.fix_status == "verified"),
+                    similarity_score=1.0,
+                    match_reason=f"Cross-project error signature match in {cp.project_id}",
+                    sanitized_fix_summary=None,
+                )
+            )
+
+    # Ensure general_knowledge_matches are represented in unified list
+    for gk in general_knowledge_matches:
+        if gk.kb_id not in seen_unified_ids:
+            seen_unified_ids.add(gk.kb_id)
+            historical_matches.append(
+                HistoricalMatchUnifiedItem(
+                    id=gk.kb_id,
+                    source_id=gk.kb_id,
+                    source_type="knowledge_base",
+                    is_cross_project=False,
+                    is_general_knowledge=True,
+                    source_project="Curated Knowledge Base",
+                    verified=False,
+                    similarity_score=gk.similarity_score,
+                    match_reason=gk.explanation,
+                    sanitized_fix_summary="; ".join(gk.suggested_resolutions) if gk.suggested_resolutions else None,
+                )
+            )
+
     return IncidentHistoryResponse(
         current_incident_id=incident_id,
         error_signature=target_sig,
         same_project_matches=same_project_matches,
         cross_project_matches=cross_project_matches,
+        general_knowledge_matches=general_knowledge_matches,
+        historical_matches=historical_matches,
     )
 
 

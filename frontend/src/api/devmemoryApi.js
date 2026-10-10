@@ -222,8 +222,53 @@ export function normalizeDiagnosis(diag) {
   };
 }
 
+export function normalizeHistoricalMatch(m) {
+  if (!m) return m;
+  const isGeneralKnowledge = Boolean(
+    m.isGeneralKnowledge ||
+    m.is_general_knowledge ||
+    m.sourceType === 'knowledge_base' ||
+    m.source_type === 'knowledge_base' ||
+    m.sourceType === 'general_knowledge' ||
+    m.source_type === 'general_knowledge'
+  );
+  const isCrossProject = m.isCrossProject !== undefined ? Boolean(m.isCrossProject) : Boolean(m.is_cross_project);
+  const sourceType = m.sourceType || m.source_type || (isGeneralKnowledge ? 'knowledge_base' : (isCrossProject ? 'public_precedent' : 'project_memory'));
+  const sourceProject = m.sourceProject || m.source_project || m.projectId || m.project_id || (isGeneralKnowledge ? 'Curated Knowledge Base' : 'Current Project');
+  const verified = m.verified !== undefined ? Boolean(m.verified) : (m.verificationStatus === 'VERIFIED' || m.verification_status === 'VERIFIED');
+  const similarityScore = m.similarityScore !== undefined ? m.similarityScore : (m.similarity_score !== undefined ? m.similarity_score : 1.0);
+  const matchReason = m.matchReason || m.match_reason || m.relevanceReason || m.relevance_reason || m.reason || 'Matched diagnostic evidence';
+  const sanitizedFixSummary = m.sanitizedFixSummary || m.sanitized_fix_summary || m.resolutionSummary || m.resolution_summary || m.fixSummary || m.fix_summary || m.explanation || null;
+
+  return {
+    id: m.id || m.sourceId || m.source_id || `match_${Math.random().toString(36).substring(2, 9)}`,
+    sourceId: m.sourceId || m.source_id || m.id,
+    sourceType,
+    isCrossProject,
+    isGeneralKnowledge,
+    sourceProject,
+    verified,
+    similarityScore,
+    matchReason,
+    sanitizedFixSummary,
+    title: m.title || (isGeneralKnowledge ? m.matchReason || 'Curated General Guidance' : null),
+    suggestedResolutions: m.suggestedResolutions || m.suggested_resolutions || (Array.isArray(m.recommendations) ? m.recommendations : []),
+  };
+}
+
 export function normalizeIncident(inc) {
   if (!inc) return inc;
+  const normalizedDiagnosis = normalizeDiagnosis(inc.aiDiagnosis || inc.ai_diagnosis);
+  const rawMatches =
+    (inc.historicalMatches && inc.historicalMatches.length ? inc.historicalMatches : null) ||
+    (inc.historical_matches && inc.historical_matches.length ? inc.historical_matches : null) ||
+    normalizedDiagnosis?.matchedMemory ||
+    [];
+
+  const historicalMatches = Array.isArray(rawMatches)
+    ? rawMatches.map(normalizeHistoricalMatch)
+    : [];
+
   return {
     ...inc,
     incidentId: inc.incidentId || inc.incident_id || inc.id,
@@ -239,10 +284,10 @@ export function normalizeIncident(inc) {
       column: inc.column,
       snippet: inc.source_snippet,
     } : null),
-    diagnosisStatus: inc.diagnosisStatus || inc.diagnosis_status || (inc.ai_diagnosis || inc.aiDiagnosis ? 'diagnosed' : 'pending'),
-    aiDiagnosis: normalizeDiagnosis(inc.aiDiagnosis || inc.ai_diagnosis),
-    historicalMatches: inc.historicalMatches || inc.historical_matches || [],
-    fixOutcome: inc.fixOutcome || inc.fix_outcome,
+    diagnosisStatus: inc.diagnosisStatus || inc.diagnosis_status || (normalizedDiagnosis ? 'diagnosed' : 'pending'),
+    aiDiagnosis: normalizedDiagnosis,
+    historicalMatches,
+    fixOutcome: normalizeFixOutcome(inc.fixOutcome || inc.fix_outcome),
     createdAt: inc.createdAt || inc.created_at,
   };
 }
@@ -311,22 +356,64 @@ export function normalizeRecurringError(err) {
   };
 }
 
+export function normalizeFixOutcome(fix) {
+  if (!fix) return null;
+  return normalizeVerifiedFix(fix);
+}
+
 export function normalizeVerifiedFix(fix) {
   if (!fix) return fix;
+  const rawStatus = (fix.status || 'proposed').toLowerCase();
+  const recurrence = Number(
+    fix.recurrenceCountAfterFix !== undefined
+      ? fix.recurrenceCountAfterFix
+      : (fix.recurrence_count_after_fix || fix.recurrenceAfterFix || 0)
+  );
+
+  let normStatus = 'PENDING';
+  if (recurrence > 0 || rawStatus === 'recurring') {
+    normStatus = 'RECURRING';
+  } else if (rawStatus === 'verified') {
+    normStatus = 'VERIFIED';
+  } else if (rawStatus === 'failed') {
+    normStatus = 'FAILED';
+  } else if (rawStatus === 'reverted') {
+    normStatus = 'REVERTED';
+  }
+
+  const vMethod =
+    fix.verificationMethod ||
+    fix.verification_method ||
+    fix.verification_command ||
+    (normStatus === 'VERIFIED' ? 'Recorded verification' : 'devmemory verify');
+
+  const tResult =
+    fix.testResult ||
+    fix.test_result ||
+    fix.verification_details ||
+    (normStatus === 'VERIFIED' ? 'Verified successfully' : 'Pending verification execution');
+
   return {
     ...fix,
     id: fix.id || fix.fixId || fix.fix_id,
     fixId: fix.fixId || fix.fix_id || fix.id,
+    incidentId: fix.incidentId || fix.incident_id,
     projectId: fix.projectId || fix.project_id,
     projectName: fix.projectName || fix.project_name || fix.projectId || fix.project_id,
     errorType: fix.errorType || fix.error_type || 'Resolved Issue',
-    solutionSummary: fix.solutionSummary || fix.solution_summary || fix.description || '',
-    verificationMethod: fix.verificationMethod || fix.verification_method || fix.verification_command || 'Manual Verification',
-    testResult: fix.testResult || fix.test_result || fix.verification_details || 'Verified successfully',
-    status: fix.status || 'VERIFIED',
+    solutionSummary: fix.solutionSummary || fix.solution_summary || fix.description || fix.proposedSolution || '',
+    proposedSolution: fix.proposedSolution || fix.solutionSummary || fix.solution_summary || fix.description || '',
+    verificationMethod: vMethod,
+    testResult: tResult,
+    status: normStatus,
+    rawStatus,
     verifiedAt: fix.verifiedAt || fix.verified_at,
-    recurrenceCountAfterFix: fix.recurrenceCountAfterFix !== undefined ? fix.recurrenceCountAfterFix : (fix.recurrence_count_after_fix || 0),
-    author: fix.author || 'AI Recommendation + Developer Verification',
+    recurrenceCountAfterFix: recurrence,
+    recurrenceAfterFix: recurrence,
+    author: fix.author || (fix.verification_source === 'user_confirmation' ? 'Developer Confirmation' : 'AI Recommendation + Verification'),
+    verificationEventId: fix.verificationEventId || fix.verification_event_id,
+    verificationSource: fix.verificationSource || fix.verification_source,
+    verificationExitCode: fix.verificationExitCode !== undefined ? fix.verificationExitCode : fix.verification_exit_code,
   };
 }
 
@@ -485,6 +572,51 @@ export async function fetchIncidentDiagnosis(incidentId) {
   return { data: null, isMock: false, error: result.error || 'Diagnosis not found' };
 }
 
+export async function fetchIncidentHistory(incidentId) {
+  const result = await safeApiFetch(`/incidents/${incidentId}/history`);
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    const historicalMatches = Array.isArray(data.historical_matches)
+      ? data.historical_matches.map(normalizeHistoricalMatch)
+      : [];
+    const generalKnowledgeMatches = Array.isArray(data.general_knowledge_matches)
+      ? data.general_knowledge_matches.map((gk) =>
+          normalizeHistoricalMatch({
+            ...gk,
+            source_id: gk.kb_id || gk.id,
+            source_type: 'knowledge_base',
+            is_general_knowledge: true,
+            is_cross_project: false,
+            source_project: 'Curated Knowledge Base',
+            verified: false,
+            match_reason: gk.explanation || gk.title,
+            sanitized_fix_summary: Array.isArray(gk.suggested_resolutions)
+              ? gk.suggested_resolutions.join('; ')
+              : (gk.suggested_resolutions || gk.explanation),
+          })
+        )
+      : [];
+
+    return {
+      data: {
+        incidentId: data.current_incident_id || incidentId,
+        errorSignature: data.error_signature,
+        historicalMatches,
+        generalKnowledgeMatches,
+        sameProjectMatches: data.same_project_matches || [],
+        crossProjectMatches: data.cross_project_matches || [],
+      },
+      isMock: false,
+    };
+  }
+
+  return {
+    data: null,
+    isMock: false,
+    error: result.error || 'Retrieval unavailable: unable to reach DevMemory memory bank',
+  };
+}
+
 export async function fetchProjectPerformance(projectId) {
   const result = await safeApiFetch(`/projects/${projectId}/performance`);
   const data = unwrapData(result);
@@ -606,6 +738,56 @@ export async function fetchAllFixes() {
   }
 
   return { data: [], isMock: false, error: result.error || 'Failed to fetch fixes' };
+}
+
+export async function verifyFix(fixId, verificationData, projectId = null) {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+  const result = await safeApiFetch(`/fixes/${fixId}/verify${query}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(verificationData),
+  });
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    return { success: true, data: normalizeVerifiedFix(data), isMock: false };
+  }
+  return {
+    success: false,
+    data: null,
+    isMock: false,
+    error: result.error || 'Failed to verify fix',
+    status: result.status,
+  };
+}
+
+export async function createIncidentFix(incidentId, payload, projectId = null) {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+  const result = await safeApiFetch(`/incidents/${incidentId}/fixes${query}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = unwrapData(result);
+  if (result.ok && data) {
+    return { success: true, data: normalizeVerifiedFix(data), isMock: false };
+  }
+  return {
+    success: false,
+    data: null,
+    isMock: false,
+    error: result.error || 'Failed to create fix proposal',
+    status: result.status,
+  };
+}
+
+export async function fetchIncidentFixes(incidentId, projectId = null) {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+  const result = await safeApiFetch(`/incidents/${incidentId}/fixes${query}`);
+  const list = unwrapList(result);
+  if (result.ok && list !== null) {
+    return { data: list.map(normalizeVerifiedFix), isMock: false };
+  }
+  return { data: [], isMock: false, error: result.error || 'Failed to fetch incident fixes' };
 }
 
 export async function fetchAllPerformance() {

@@ -299,6 +299,15 @@ def map_ai_response_to_backend_diagnosis(
             source_id=m.incident_id[:128],
             source_type=m.match_source.value,
             relevance_reason=m.explanation[:1000] if m.explanation else None,
+            similarity_score=round(m.similarity_score, 4) if getattr(m, "similarity_score", None) is not None else None,
+            resolution_summary=m.resolution_summary[:5000] if getattr(m, "resolution_summary", None) else None,
+            verification_status=(
+                m.verification_status.value
+                if hasattr(getattr(m, "verification_status", None), "value")
+                else str(m.verification_status)
+            ) if getattr(m, "verification_status", None) else "unverified",
+            project_id=m.project_id[:128] if getattr(m, "project_id", None) else None,
+            is_cross_project=(m.match_source == ai_schemas.MatchSource.CROSS_PROJECT),
         )
         for m in ai_resp.related_incidents
     ]

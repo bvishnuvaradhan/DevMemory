@@ -22,6 +22,7 @@ import Badge from '../components/common/Badge';
 import StatCard from '../components/common/StatCard';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import EmptyState from '../components/common/EmptyState';
+import VerifyFixModal from '../components/errors/VerifyFixModal';
 import { fetchAllFixes, fetchProjects } from '../api/devmemoryApi';
 
 export default function VerifiedFixesPage() {
@@ -31,6 +32,8 @@ export default function VerifiedFixesPage() {
   const [projects, setProjects] = useState([]);
   const [isMock, setIsMock] = useState(true);
   const [copiedId, setCopiedId] = useState(null);
+  const [verifyModalOpen, setVerifyModalOpen] = useState(false);
+  const [selectedFixForVerify, setSelectedFixForVerify] = useState(null);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -404,7 +407,24 @@ export default function VerifiedFixesPage() {
                     <strong className="text-slate-700 dark:text-slate-300">{fix.author || 'AI + Dev Verification'}</strong>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {!isRecurring && (
+                      <button
+                        onClick={() => {
+                          setSelectedFixForVerify(fix);
+                          setVerifyModalOpen(true);
+                        }}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold transition-all cursor-pointer shadow-xs ${
+                          isVerified
+                            ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600'
+                        }`}
+                      >
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        <span>{isVerified ? 'Re-Verify Fix' : 'Verify Fix'}</span>
+                      </button>
+                    )}
+
                     {fix.relatedIncidentId && (
                       <Link
                         to={`/projects/${fix.projectId}/errors`}
@@ -428,6 +448,21 @@ export default function VerifiedFixesPage() {
             );
           })}
         </div>
+      )}
+
+      {verifyModalOpen && (
+        <VerifyFixModal
+          isOpen={verifyModalOpen}
+          onClose={() => {
+            setVerifyModalOpen(false);
+            setSelectedFixForVerify(null);
+          }}
+          fix={selectedFixForVerify}
+          projectId={selectedFixForVerify?.projectId}
+          onVerified={() => {
+            loadData();
+          }}
+        />
       )}
     </div>
   );

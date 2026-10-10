@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   FolderGit2,
@@ -66,31 +66,32 @@ export default function ProjectWorkspace() {
     navigate(targetUrl);
   };
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const [projRes, runsRes, incRes, perfRes, eventsRes] = await Promise.all([
-          fetchProject(projectId),
-          fetchProjectRuns(projectId),
-          fetchProjectIncidents(projectId),
-          fetchProjectPerformance(projectId),
-          fetchProjectEvents(projectId),
-        ]);
-        setProject(projRes.data);
-        setRuns(runsRes.data);
-        setIncidents(incRes.data);
-        setPerformance(perfRes.data);
-        setEvents(eventsRes.data);
-        setIsMock(projRes.isMock || runsRes.isMock);
-      } catch (err) {
-        console.error('Failed to load project details:', err);
-      } finally {
-        setLoading(false);
-      }
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [projRes, runsRes, incRes, perfRes, eventsRes] = await Promise.all([
+        fetchProject(projectId),
+        fetchProjectRuns(projectId),
+        fetchProjectIncidents(projectId),
+        fetchProjectPerformance(projectId),
+        fetchProjectEvents(projectId),
+      ]);
+      setProject(projRes.data);
+      setRuns(runsRes.data);
+      setIncidents(incRes.data);
+      setPerformance(perfRes.data);
+      setEvents(eventsRes.data);
+      setIsMock(projRes.isMock || runsRes.isMock);
+    } catch (err) {
+      console.error('Failed to load project details:', err);
+    } finally {
+      setLoading(false);
     }
-    load();
   }, [projectId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   if (loading) {
     return <LoadingSpinner label={`Loading workspace for ${projectId}...`} />;
@@ -248,6 +249,8 @@ export default function ProjectWorkspace() {
               <ErrorInspector
                 incidents={incidents.slice(0, 1)}
                 currentProjectName={project?.name}
+                onRefresh={load}
+                availableRuns={runs}
               />
             </div>
           )}
@@ -271,6 +274,8 @@ export default function ProjectWorkspace() {
         <ErrorInspector
           incidents={incidents}
           currentProjectName={project?.name}
+          onRefresh={load}
+          availableRuns={runs}
         />
       )}
 

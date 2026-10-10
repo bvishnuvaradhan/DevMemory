@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AlertTriangle,
   Terminal,
@@ -8,6 +8,7 @@ import {
   Activity,
   Layers,
   ChevronRight,
+  ShieldCheck,
 } from 'lucide-react';
 import Badge from '../common/Badge';
 import CodeSnippetViewer from './CodeSnippetViewer';
@@ -15,12 +16,23 @@ import StackTraceViewer from './StackTraceViewer';
 import AIDiagnosisCard from './AIDiagnosisCard';
 import HistoricalIncidentsCard from './HistoricalIncidentsCard';
 import FixVerificationBadge from './FixVerificationBadge';
+import VerifyFixModal from './VerifyFixModal';
 import EmptyState from '../common/EmptyState';
+import { fetchIncidentHistory } from '../../api/devmemoryApi';
 
-export default function ErrorInspector({ incidents = [], currentProjectName }) {
+export default function ErrorInspector({
+  incidents = [],
+  currentProjectName,
+  onRefresh,
+  availableRuns = [],
+}) {
   const [selectedId, setSelectedId] = useState(
     incidents.length > 0 ? incidents[0].incidentId : null
   );
+  const [historyMatches, setHistoryMatches] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
+  const [verifyModalOpen, setVerifyModalOpen] = useState(false);
 
   if (!incidents || incidents.length === 0) {
     return (
@@ -34,6 +46,64 @@ export default function ErrorInspector({ incidents = [], currentProjectName }) {
 
   const activeIncident =
     incidents.find((i) => i.incidentId === selectedId) || incidents[0];
+
+  useEffect(() => {
+    if (!activeIncident?.incidentId) {
+      setHistoryMatches([]);
+      setHistoryLoading(false);
+      setHistoryError(null);
+      return;
+    }
+
+    let isMounted = true;
+    const initialMatches = activeIncident.historicalMatches || [];
+    setHistoryMatches(initialMatches);
+    setHistoryLoading(true);
+    setHistoryError(null);
+
+    fetchIncidentHistory(activeIncident.incidentId)
+      .then((res) => {
+        if (!isMounted) return;
+        if (res && res.data) {
+          const combined = [
+            ...(res.data.historicalMatches || []),
+            ...(res.data.generalKnowledgeMatches || []),
+          ];
+          const seen = new Set();
+          const unique = [];
+          for (const item of combined) {
+            const key = item.sourceId || item.id;
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              unique.push(item);
+            } else if (!key) {
+              unique.push(item);
+            }
+          }
+          setHistoryMatches(unique);
+          setHistoryError(null);
+        } else if (res && res.error) {
+          if (initialMatches.length === 0) {
+            setHistoryError(res.error);
+          }
+        }
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        if (initialMatches.length === 0) {
+          setHistoryError(err.message || 'Failed to fetch incident retrieval history');
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setHistoryLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeIncident?.incidentId]);
 
   return (
     <div className="space-y-6">
@@ -135,25 +205,46 @@ export default function ErrorInspector({ incidents = [], currentProjectName }) {
         />
 
         {/* 4. Fix Outcome & Verification Section */}
-        {activeIncident.fixOutcome && (
-          <div className="rounded-2xl border border-emerald-100 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/30 p-5 space-y-3 shadow-xs">
-            <div className="flex items-center justify-between border-b border-emerald-100 dark:border-emerald-900/60 pb-2.5">
-              <span className="text-xs font-mono font-semibold text-emerald-900 dark:text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                Fix Verification Tracking
-              </span>
-              <FixVerificationBadge
-                status={activeIncident.fixOutcome.status}
-                recurrenceCount={activeIncident.fixOutcome.recurrenceAfterFix}
-              />
-            </div>
+        <div className="rounded-2xl border border-emerald-100 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/30 p-5 space-y-3 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-100 dark:border-emerald-900/60 pb-2.5">
+            <span className="text-xs font-mono font-semibold text-emerald-900 dark:text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              Fix Verification Tracking
+            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              {activeIncident.fixOutcome ? (
+                <FixVerificationBadge
+                  status={activeIncident.fixOutcome.status}
+                  recurrenceCount={activeIncident.fixOutcome.recurrenceAfterFix}
+                />
+              ) : (
+                <span className="inline-flex items-center rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-xs font-mono font-medium text-slate-600 dark:text-slate-400">
+                  No Fix Registered
+                </span>
+              )}
 
+              <button
+                type="button"
+                onClick={() => setVerifyModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-all cursor-pointer shadow-xs"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {activeIncident.fixOutcome
+                  ? activeIncident.fixOutcome.status === 'VERIFIED'
+                    ? 'Re-Verify Fix'
+                    : 'Verify Fix'
+                  : 'Propose & Verify Fix'}
+              </button>
+            </div>
+          </div>
+
+          {activeIncident.fixOutcome ? (
             <div className="space-y-2 text-xs">
               <div>
                 <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px] block font-medium">
                   Proposed Solution:
                 </span>
-                <p className="text-slate-800 dark:text-slate-200 font-sans mt-0.5 leading-relaxed">
+                <p className="text-slate-800 dark:text-slate-200 font-sans mt-0.5 leading-relaxed font-mono">
                   {activeIncident.fixOutcome.proposedSolution}
                 </p>
               </div>
@@ -172,15 +263,38 @@ export default function ErrorInspector({ incidents = [], currentProjectName }) {
                 )}
               </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <p className="text-xs text-slate-600 dark:text-slate-400 py-1 font-mono">
+              No fix outcome has been recorded for this incident yet. Propose a solution with command execution evidence or recorded command run to verify it.
+            </p>
+          )}
+        </div>
 
         {/* 5. Historical Precedents & Cross-Project Memory */}
         <HistoricalIncidentsCard
-          historicalMatches={activeIncident.historicalMatches}
+          historicalMatches={historyMatches.length > 0 ? historyMatches : (activeIncident.historicalMatches || [])}
           currentProjectName={currentProjectName}
+          isLoading={historyLoading && historyMatches.length === 0}
+          error={historyError}
         />
       </div>
+
+      <VerifyFixModal
+        isOpen={verifyModalOpen}
+        onClose={() => setVerifyModalOpen(false)}
+        incident={activeIncident}
+        fix={activeIncident.fixOutcome}
+        projectId={activeIncident.projectId}
+        availableRuns={availableRuns}
+        onVerified={(updatedOutcome) => {
+          if (activeIncident) {
+            activeIncident.fixOutcome = updatedOutcome;
+          }
+          if (typeof onRefresh === 'function') {
+            onRefresh();
+          }
+        }}
+      />
     </div>
   );
 }

@@ -50,6 +50,32 @@ class CrossProjectIncidentSummary(BaseModel):
     fix_status: Optional[str] = Field(default=None, description="Outcome of verified fix if present")
 
 
+class GeneralKnowledgeMatchItem(BaseModel):
+    """Curated general programming knowledge base match."""
+
+    kb_id: str
+    title: str
+    explanation: str
+    similarity_score: float = 1.0
+    suggested_resolutions: List[str] = Field(default_factory=list)
+    match_source: str = "general_knowledge"
+
+
+class HistoricalMatchUnifiedItem(BaseModel):
+    """Unified representation of historical match across project, cross-project, and knowledge base."""
+
+    id: str
+    source_id: str
+    source_type: str  # 'project_memory', 'public_precedent', 'knowledge_base'
+    is_cross_project: bool = False
+    is_general_knowledge: bool = False
+    source_project: str
+    verified: bool = False
+    similarity_score: float = 1.0
+    match_reason: str
+    sanitized_fix_summary: Optional[str] = None
+
+
 class IncidentHistoryResponse(BaseModel):
     """Historical incident matches partitioned by same-project vs cross-project."""
 
@@ -57,3 +83,5 @@ class IncidentHistoryResponse(BaseModel):
     error_signature: str
     same_project_matches: List[IncidentResponse] = Field(default_factory=list)
     cross_project_matches: List[CrossProjectIncidentSummary] = Field(default_factory=list)
+    general_knowledge_matches: List[GeneralKnowledgeMatchItem] = Field(default_factory=list)
+    historical_matches: List[HistoricalMatchUnifiedItem] = Field(default_factory=list)

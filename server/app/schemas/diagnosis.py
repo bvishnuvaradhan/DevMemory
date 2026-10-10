@@ -20,8 +20,13 @@ class MatchedMemoryRef(BaseModel):
     """Reference to historical incident or general knowledge item."""
 
     source_id: str = Field(..., min_length=1, max_length=128, description="Incident or KB reference ID")
-    source_type: str = Field(..., description="'incident' or 'knowledge_base'")
+    source_type: str = Field(..., description="'project_memory', 'cross_project', or 'general_knowledge'")
     relevance_reason: Optional[str] = Field(default=None, max_length=1000, description="Why this memory applies")
+    similarity_score: Optional[float] = Field(default=None, description="Similarity score between 0.0 and 1.0")
+    resolution_summary: Optional[str] = Field(default=None, max_length=5000, description="Sanitized fix resolution summary if verified")
+    verification_status: Optional[str] = Field(default=None, max_length=50, description="Verification status: verified, unverified, failed")
+    project_id: Optional[str] = Field(default=None, max_length=128, description="Originating project ID if disclosed")
+    is_cross_project: Optional[bool] = Field(default=False, description="Whether match originated outside current project")
 
 
 class DiagnosisCreate(BaseModel):
