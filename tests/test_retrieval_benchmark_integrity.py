@@ -206,8 +206,8 @@ def test_fail_closed_authorization_security():
 
 
 def test_retrieval_benchmark_v2_dataset_structure_and_categories():
-    """Verify v2.0.0 dataset expansion to 30 corpus items, 33 scenarios, and explicit categories."""
-    assert BENCHMARK_VERSION == "2.0.0"
+    """Verify v2.1.0 dataset expansion to 30 corpus items, 36 scenarios, and explicit categories."""
+    assert BENCHMARK_VERSION == "2.1.0"
 
     # 1. Corpus verification
     assert len(BENCHMARK_CORPUS) == 30
@@ -215,9 +215,9 @@ def test_retrieval_benchmark_v2_dataset_structure_and_categories():
     assert len(set(corpus_ids)) == 30  # All IDs unique
 
     # 2. Scenario verification
-    assert len(BENCHMARK_SCENARIOS) == 33
+    assert len(BENCHMARK_SCENARIOS) == 36
     scenario_ids = [s.scenario_id for s in BENCHMARK_SCENARIOS]
-    assert len(set(scenario_ids)) == 33  # All scenario IDs unique
+    assert len(set(scenario_ids)) == 36  # All scenario IDs unique
 
     # 3. Denominators verification
     pos_cases = [s for s in BENCHMARK_SCENARIOS if s.expected_target_id is not None and not s.is_cross_project]
@@ -225,11 +225,11 @@ def test_retrieval_benchmark_v2_dataset_structure_and_categories():
     clash_cases = [s for s in BENCHMARK_SCENARIOS if s.clashing_id is not None]
     cross_cases = [s for s in BENCHMARK_SCENARIOS if s.is_cross_project]
 
-    assert len(pos_cases) == 26
+    assert len(pos_cases) == 27
     assert len(neg_cases) == 5
-    assert len(clash_cases) == 4
+    assert len(clash_cases) == 6
     assert len(cross_cases) == 2
-    assert len(pos_cases) + len(neg_cases) + len(cross_cases) == 33
+    assert len(pos_cases) + len(neg_cases) + len(cross_cases) + 2 == 36
 
     # 4. Integrity of referenced IDs
     corpus_id_set = set(corpus_ids)
@@ -350,7 +350,7 @@ def test_suite_a_and_suite_b_independence():
     # Zero overlap in scenario IDs
     assert len(suite_a_ids.intersection(suite_b_ids)) == 0
     assert len(suite_a_ids) == 56
-    assert len(suite_b_ids) == 33
+    assert len(suite_b_ids) == 36
 
     # Suite A evaluation runs with 100% pass rate
     metrics, _ = run_evaluation(live_llm=False)

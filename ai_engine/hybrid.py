@@ -27,6 +27,10 @@ from ai_engine.schemas import (
     IncidentMatch,
     MatchSource,
 )
+from ai_engine.taxonomy import (
+    ExceptionCompatibility,
+    evaluate_exception_compatibility,
+)
 from ai_engine.vector import VectorSearchResult
 
 logger = logging.getLogger(__name__)
@@ -70,12 +74,19 @@ def calculate_hybrid_score(
     c_sig = candidate_dict.get("error_signature") or compute_error_signature(c_err, c_stack, c_cmd)
     is_exact_sig = bool(c_sig and q_sig == c_sig)
 
-    # 2. Exception Type Contradiction Guard
+    # 2. Exception Type Compatibility and Contradiction Guard
     q_type = extract_exception_type(q_err, q_stack)
     c_type = extract_exception_type(c_err, c_stack)
-    has_contradictory_type = False
-    if q_type and c_type and q_type.lower() != c_type.lower():
-        has_contradictory_type = True
+    compat = evaluate_exception_compatibility(
+        query_type=q_type,
+        candidate_type=c_type,
+        query_command=q_cmd,
+        query_stack=q_stack,
+        candidate_command=c_cmd,
+        candidate_stack=c_stack,
+    )
+    has_contradictory_type = (compat == ExceptionCompatibility.INCOMPATIBLE)
+    is_subtype_match = (compat == ExceptionCompatibility.SUBTYPE)
 
     # 3. Technology / Stack Compatibility
     q_tech = detect_technology_stack(q_cmd, q_stack)
@@ -113,6 +124,15 @@ def calculate_hybrid_score(
                 f"Incompatible runtime stack ('{q_tech}' vs '{c_tech}'); "
                 f"hybrid score discounted"
             )
+        elif is_subtype_match:
+            # Verified subtype compatibility (e.g. ModuleNotFoundError < ImportError)
+            # Distinct from exact exception equality, receiving a calibrated 10% discount on vector contribution
+            subtype_vector_score = vector_score * 0.90
+            fused = 0.55 * lexical_score + 0.45 * subtype_vector_score + reliability_boost
+            explanation_parts.append(
+                f"Compatible exception subtype ('{q_type}' -> '{c_type}'); "
+                f"hybrid fusion (Lexical: {lexical_score:.0%}, Calibrated Semantic: {subtype_vector_score:.0%})"
+            )
         else:
             # Balanced multi-signal fusion: 55% lexical rules + 45% vector semantics
             fused = 0.55 * lexical_score + 0.45 * vector_score + reliability_boost
@@ -129,7 +149,12 @@ def calculate_hybrid_score(
         elif has_incompatible_tech:
             fused = min(lexical_score * 0.75, 0.40)
             explanation_parts.append(
-                f"Incompatible runtime stack ('{q_tech}' vs '{c_tech}'); discounted"
+                f"Incompatible runtime stack ('{q_tech}' vs '{c_tech}'); lexical discounted"
+            )
+        elif is_subtype_match:
+            fused = (lexical_score * 0.90) + reliability_boost
+            explanation_parts.append(
+                f"Compatible exception subtype ('{q_type}' -> '{c_type}'); lexical calibrated"
             )
         else:
             fused = lexical_score + reliability_boost

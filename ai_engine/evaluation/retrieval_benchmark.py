@@ -39,7 +39,7 @@ from ai_engine.vector import (
     build_embedding_text,
 )
 
-BENCHMARK_VERSION = "2.0.0"
+BENCHMARK_VERSION = "2.1.0"
 
 
 class BenchmarkMockDenseClient:
@@ -993,6 +993,54 @@ BENCHMARK_SCENARIOS: List[BenchmarkScenario] = [
         is_cross_project=True,
         allow_cross_project=True,
     ),
+    # 34. Exception Subtype Compatibility 1: ImportError vs ModuleNotFoundError target
+    BenchmarkScenario(
+        scenario_id="bm_compat_01_importerror_vs_modulenotfound",
+        scenario_type="positive_paraphrase",
+        category="python_deps",
+        description="Query with ImportError: cannot import name 'safe_dump' from 'yaml' against PyYAML missing package target",
+        request=DiagnosisRequest(
+            event_id="req_bm_compat_01",
+            project_id="proj_main",
+            command="python run.py",
+            exit_code=1,
+            error_message="ImportError: cannot import name 'safe_dump' from 'yaml'",
+        ),
+        expected_target_id="inc_target_mod_missing",
+        distractor_id="inc_clash_syntax_jwt",
+    ),
+    # 35. Contradiction Scenario 3: FileNotFoundError vs PermissionError (sibling OSErrors must clash)
+    BenchmarkScenario(
+        scenario_id="bm_clash_03_filenotfound_vs_permission",
+        scenario_type="contradiction",
+        category="contradiction_guard",
+        description="Query with FileNotFoundError must suppress PermissionError candidate despite identical filepath",
+        request=DiagnosisRequest(
+            event_id="req_bm_clash_03",
+            project_id="proj_main",
+            command="python worker.py",
+            exit_code=1,
+            error_message="FileNotFoundError: [Errno 2] No such file or directory: '/var/log/app/worker.log'",
+        ),
+        expected_target_id=None,
+        clashing_id="inc_target_permission_denied",
+    ),
+    # 36. Contradiction Scenario 4: Cross-language Runtime Mismatch (Node TypeError vs Python precedent)
+    BenchmarkScenario(
+        scenario_id="bm_clash_04_cross_lang_typeerror",
+        scenario_type="contradiction",
+        category="contradiction_guard",
+        description="Node TypeError on undefined property must not match Python TypeError candidate",
+        request=DiagnosisRequest(
+            event_id="req_bm_clash_04",
+            project_id="proj_main",
+            command="node server.js",
+            exit_code=1,
+            error_message="TypeError: Cannot read properties of undefined (reading 'session_key')",
+        ),
+        expected_target_id=None,
+        clashing_id="inc_target_python_version",
+    ),
 ]
 
 
@@ -1357,7 +1405,7 @@ def print_comparative_benchmark_table() -> None:
 
     print("=" * 118)
     print("AUDIT & INTEGRITY FINDINGS:")
-    print(f"- Benchmark v{BENCHMARK_VERSION} covers 30 corpus items and 33 scenarios across 14 technical domains.")
+    print(f"- Benchmark v{BENCHMARK_VERSION} covers {len(BENCHMARK_CORPUS)} corpus items and {len(BENCHMARK_SCENARIOS)} scenarios across 15 technical domains.")
     print("- Mode 1 (Lexical) fails on paraphrased queries with disjoint token sets.")
     print("- Mode 2 (Deterministic Hash Hybrid) provides typo-resilient morphological hybrid retrieval 100% offline.")
     print("- Mode 3 (Dense Mock Hybrid) achieves high semantic generalization, but is strictly a SIMULATED MOCK.")

@@ -29,6 +29,10 @@ from ai_engine.schemas import (
     KnowledgeBaseItem,
     MatchSource,
 )
+from ai_engine.taxonomy import (
+    ExceptionCompatibility,
+    evaluate_exception_compatibility,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -153,11 +157,21 @@ def _match_project_memory(
         }
         score, explanation = calculate_similarity(query_dict, cand_dict)
 
-        # Contradiction guard: conflicting exception types must never exceed 0.35
+        # Contradiction guard: evaluate language-aware exception compatibility
         q_type = extract_exception_type(request.error_message, request.stack_trace)
         c_type = extract_exception_type(cand.get("error_message", ""), cand.get("stack_trace"))
-        if q_type and c_type and q_type.lower() != c_type.lower():
+        compat = evaluate_exception_compatibility(
+            query_type=q_type,
+            candidate_type=c_type,
+            query_command=request.command,
+            query_stack=request.stack_trace,
+            candidate_command=cand.get("command"),
+            candidate_stack=cand.get("stack_trace"),
+        )
+        if compat == ExceptionCompatibility.INCOMPATIBLE:
             score = min(score, 0.35)
+        elif compat == ExceptionCompatibility.SUBTYPE:
+            score = score * 0.90
 
         # Boost score slightly if exact error signature matches
         q_sig = compute_error_signature(request.error_message, request.stack_trace, request.command)
@@ -235,11 +249,21 @@ def _match_cross_project_memory(
         }
         score, explanation = calculate_similarity(query_dict, cand_dict)
 
-        # Contradiction guard: conflicting exception types must never exceed 0.35
+        # Contradiction guard: evaluate language-aware exception compatibility
         q_type = extract_exception_type(request.error_message, request.stack_trace)
         c_type = extract_exception_type(cand.get("error_message", ""), cand.get("stack_trace"))
-        if q_type and c_type and q_type.lower() != c_type.lower():
+        compat = evaluate_exception_compatibility(
+            query_type=q_type,
+            candidate_type=c_type,
+            query_command=request.command,
+            query_stack=request.stack_trace,
+            candidate_command=cand.get("command"),
+            candidate_stack=cand.get("stack_trace"),
+        )
+        if compat == ExceptionCompatibility.INCOMPATIBLE:
             score = min(score, 0.35)
+        elif compat == ExceptionCompatibility.SUBTYPE:
+            score = score * 0.90
 
         if score >= threshold:
             v_status_raw = cand.get("verification_status", FixVerificationStatus.UNVERIFIED)
