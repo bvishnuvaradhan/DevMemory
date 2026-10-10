@@ -92,6 +92,8 @@ def _synthesize_fallback_diagnosis(
             hypotheses.append(top_match.resolution_summary)
 
     safe_reason = redact_secrets(reason)
+    if len(safe_reason) > 500:
+        safe_reason = safe_reason[:500] + "... [truncated]"
 
     return DiagnosisResponse(
         event_id=request.event_id,

@@ -49,6 +49,15 @@ class GroqLLMClient:
             ValueError: If GROQ_API_KEY is not configured.
             RuntimeError: If API call fails or times out.
         """
+        if (
+            os.getenv("DEV_MEMORY_DISABLE_EXTERNAL_AI", "").lower() in ("1", "true", "yes")
+            or os.getenv("DEVMEMORY_OFFLINE_MODE", "").lower() in ("1", "true", "yes")
+            or os.getenv("AI_PRIVACY_OFFLINE_ONLY", "").lower() in ("1", "true", "yes")
+        ):
+            raise RuntimeError(
+                "External AI inference disabled by privacy configuration (offline mode enforced)."
+            )
+
         if not self.api_key:
             raise ValueError(
                 "GROQ_API_KEY environment variable is not set. "

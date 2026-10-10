@@ -51,7 +51,7 @@ def test_live_mongo_atlas_vector_search():
     """Live integration test for MongoDB Atlas Vector Search."""
     adapter = MongoVectorSearchAdapter(
         connection_uri=os.getenv("MONGODB_ATLAS_URI"),
-        index_name=os.getenv("MONGODB_VECTOR_INDEX", "incident_vector_index"),
+        index_name=os.getenv("MONGODB_VECTOR_INDEX", "devmemory_vector_index"),
     )
     # Search probe vector
     res = adapter.search_project_vectors(

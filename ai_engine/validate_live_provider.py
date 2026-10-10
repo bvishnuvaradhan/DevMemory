@@ -119,7 +119,7 @@ def audit_atlas_vector_search_readiness() -> Dict[str, Any]:
     atlas_uri = os.getenv("MONGODB_ATLAS_URI")
     db_name = os.getenv("MONGODB_DATABASE", "devmemory")
     coll_name = os.getenv("MONGODB_COLLECTION", "incidents")
-    index_name = os.getenv("MONGODB_VECTOR_INDEX", "incident_vector_index")
+    index_name = os.getenv("MONGODB_VECTOR_INDEX", "devmemory_vector_index")
     vector_field = os.getenv("MONGODB_VECTOR_FIELD", "embedding")
     dimension = int(os.getenv("DEVMEMORY_VECTOR_DIMENSION", "1536"))
 
