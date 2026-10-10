@@ -1,3 +1,6 @@
+# Local tools
+.tools/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -31,10 +34,17 @@ env/
 # DevMemory Local Configuration & Cache
 .devmemory/
 
+# Node & Frontend
+node_modules/
+dist-ssr/
+*.local
+
 # Environment Variables & Secrets
 .env
+.env.*
 .env.local
 *.env
+!.env.example
 
 # Testing & Coverage
 .pytest_cache/
