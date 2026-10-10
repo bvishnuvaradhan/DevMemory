@@ -105,6 +105,26 @@ def clean_devmemory_history(db: Database) -> Dict[str, int]:
         except Exception as exc:
             logger.warning("Error clearing collection %s: %s", coll_name, exc)
             deleted_counts[coll_name] = 0
+
+    # Safely unset any embedded memory fields in projects collection if present
+    try:
+        projects_coll = db.projects if hasattr(db, "projects") else db.get("projects")
+        if projects_coll is not None and hasattr(projects_coll, "update_many"):
+            projects_coll.update_many(
+                {},
+                {
+                    "$unset": {
+                        "memory": "",
+                        "project_memory": "",
+                        "memories": "",
+                        "history": "",
+                        "incidents": "",
+                    }
+                },
+            )
+    except Exception as exc:
+        logger.debug("Safe unset of embedded memory on projects skipped: %s", exc)
+
     return deleted_counts
 
 
