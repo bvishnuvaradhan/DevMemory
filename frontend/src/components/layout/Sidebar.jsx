@@ -18,19 +18,19 @@ export default function Sidebar({ projects = [] }) {
   const navItemClass = ({ isActive }) =>
     `flex items-center gap-3 px-3 py-2 text-xs font-medium rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
       isActive
-        ? 'bg-indigo-50/90 text-indigo-600 font-semibold border border-indigo-200/80 shadow-xs'
-        : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
+        ? 'bg-indigo-50/90 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/80 dark:border-indigo-800/60 shadow-xs'
+        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-white/80 dark:hover:bg-slate-800/80'
     }`;
 
   return (
     <aside
       aria-label="Sidebar Navigation"
-      className="w-64 shrink-0 h-full border-r border-slate-200/80 bg-white/60 backdrop-blur-md p-4 flex flex-col justify-between hidden md:flex shadow-xs overflow-y-auto z-20"
+      className="w-64 shrink-0 h-full border-r border-slate-200/80 dark:border-slate-800/80 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-4 flex flex-col justify-between hidden md:flex shadow-xs overflow-y-auto z-20 transition-colors"
     >
       <div className="space-y-6">
         {/* Main Navigation */}
         <div>
-          <span className="px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          <span className="px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
             Platform
           </span>
           <nav aria-label="Platform features" className="mt-2 space-y-1">
@@ -64,7 +64,7 @@ export default function Sidebar({ projects = [] }) {
         {/* Project Workspaces list */}
         <div>
           <div className="flex items-center justify-between px-3">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Workspaces ({projects.length})
             </span>
           </div>
@@ -76,8 +76,8 @@ export default function Sidebar({ projects = [] }) {
                 className={({ isActive }) =>
                   `flex items-center justify-between px-3 py-1.5 text-xs rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                     isActive
-                      ? 'bg-white text-slate-900 font-semibold border border-slate-200/90 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-semibold border border-slate-200/90 dark:border-slate-700 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-white/60 dark:hover:bg-slate-800/60'
                   }`
                 }
               >
@@ -86,7 +86,7 @@ export default function Sidebar({ projects = [] }) {
                   <span className="truncate">{p.name}</span>
                 </div>
                 {p.failureCount > 0 && (
-                  <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-mono text-rose-600 font-semibold border border-rose-200">
+                  <span className="rounded-full bg-rose-50 dark:bg-rose-950/50 px-2 py-0.5 text-[10px] font-mono text-rose-600 dark:text-rose-400 font-semibold border border-rose-200 dark:border-rose-800">
                     {p.failureCount}
                   </span>
                 )}
@@ -96,15 +96,15 @@ export default function Sidebar({ projects = [] }) {
         </div>
 
         {/* Memory status box */}
-        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 via-purple-50/40 to-white/60 p-3.5 shadow-xs">
-          <div className="flex items-center gap-2 text-indigo-600 text-xs font-semibold">
+        <div className="rounded-2xl border border-indigo-100 dark:border-indigo-900/60 bg-gradient-to-br from-indigo-50/70 dark:from-indigo-950/40 via-purple-50/40 dark:via-purple-950/30 to-white/60 dark:to-slate-900/60 p-3.5 shadow-xs">
+          <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 text-xs font-semibold">
             <BrainCircuit className="h-4 w-4" />
             <span>3-Tier Dev Memory</span>
           </div>
-          <p className="mt-1.5 text-[11px] text-slate-600 leading-relaxed">
+          <p className="mt-1.5 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
             Troubleshooting patterns learn across projects and verify real outcomes.
           </p>
-          <div className="mt-2.5 flex items-center gap-1.5 text-[10px] text-indigo-600 font-mono font-medium">
+          <div className="mt-2.5 flex items-center gap-1.5 text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-medium">
             <Database className="h-3 w-3" />
             <span>MongoDB Persistent</span>
           </div>
@@ -112,9 +112,9 @@ export default function Sidebar({ projects = [] }) {
       </div>
 
       {/* CLI Quick Usage Box */}
-      <div className="mt-6 shrink-0 rounded-xl border border-slate-200 bg-white/80 p-3 text-xs shadow-xs">
-        <span className="text-[10px] font-mono text-slate-400 uppercase font-semibold">CLI Command</span>
-        <code className="mt-1.5 block font-mono text-[11px] text-slate-800 bg-slate-100/90 p-2 rounded-lg border border-slate-200/80 overflow-x-auto">
+      <div className="mt-6 shrink-0 rounded-xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-800/80 p-3 text-xs shadow-xs">
+        <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 uppercase font-semibold">CLI Command</span>
+        <code className="mt-1.5 block font-mono text-[11px] text-slate-800 dark:text-slate-200 bg-slate-100/90 dark:bg-slate-900/90 p-2 rounded-lg border border-slate-200/80 dark:border-slate-700 overflow-x-auto">
           devmemory run -- &lt;cmd&gt;
         </code>
       </div>

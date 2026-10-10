@@ -15,11 +15,15 @@ import {
   FolderGit2,
   Database,
   BrainCircuit,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import Badge from '../common/Badge';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function Navbar({ projects = [], selectedProjectId, onSelectProject, isMock = true }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -53,15 +57,15 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
   const navItemClass = ({ isActive }) =>
     `flex items-center gap-3 px-3 py-2 text-xs font-medium rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
       isActive
-        ? 'bg-indigo-50/90 text-indigo-600 font-semibold border border-indigo-200/80 shadow-xs'
-        : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
+        ? 'bg-indigo-50/90 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200/80 dark:border-indigo-800/60 shadow-xs'
+        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/80 dark:hover:bg-slate-800/80'
     }`;
 
   return (
     <>
       <nav
         aria-label="Global application navigation"
-        className="flex h-16 w-full items-center justify-between border-b border-slate-200/80 bg-white/75 px-3 sm:px-6 backdrop-blur-md relative z-30"
+        className="flex h-16 w-full items-center justify-between border-b border-slate-200/80 dark:border-slate-800/80 bg-white/75 dark:bg-slate-900/80 px-3 sm:px-6 backdrop-blur-md relative z-30 transition-colors"
       >
         <div className="flex items-center gap-2 sm:gap-6">
           {/* Mobile hamburger menu toggle */}
@@ -70,12 +74,12 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             aria-label={isMobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
             aria-expanded={isMobileMenuOpen}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white/80 text-slate-700 hover:bg-white hover:text-slate-900 md:hidden shadow-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white md:hidden shadow-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           >
             {isMobileMenuOpen ? (
-              <X className="h-5 w-5 text-slate-700" />
+              <X className="h-5 w-5 text-slate-700 dark:text-slate-200" />
             ) : (
-              <Menu className="h-5 w-5 text-slate-700" />
+              <Menu className="h-5 w-5 text-slate-700 dark:text-slate-200" />
             )}
           </button>
 
@@ -89,20 +93,20 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
             </div>
             <div>
               <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className="text-sm sm:text-base font-bold tracking-tight text-slate-900 font-mono">
+                <span className="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-white font-mono">
                   DevMemory
                 </span>
                 <Badge variant="brand" size="xs">Track 3</Badge>
               </div>
-              <p className="text-[9px] sm:text-[10px] text-slate-500 font-mono -mt-0.5 hidden xs:block">
+              <p className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-mono -mt-0.5 hidden xs:block">
                 Persistent Troubleshooting
               </p>
             </div>
           </Link>
 
           {/* Project Selector Dropdown on Desktop */}
-          <div className="hidden sm:flex items-center gap-2 ml-2 sm:ml-4 pl-2 sm:pl-4 border-l border-slate-200">
-            <label htmlFor="project-select" className="text-xs text-slate-500 font-mono">
+          <div className="hidden sm:flex items-center gap-2 ml-2 sm:ml-4 pl-2 sm:pl-4 border-l border-slate-200 dark:border-slate-800">
+            <label htmlFor="project-select" className="text-xs text-slate-500 dark:text-slate-400 font-mono">
               Scope:
             </label>
             <div className="relative">
@@ -111,7 +115,7 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
                 aria-label="Select active project scope"
                 value={selectedProjectId || 'all'}
                 onChange={handleProjectChange}
-                className="appearance-none rounded-lg border border-slate-200 bg-white/90 py-1.5 pl-3 pr-8 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer shadow-xs focus-visible:ring-2 focus-visible:ring-indigo-500"
+                className="appearance-none rounded-lg border border-slate-200 dark:border-slate-700 bg-white/90 dark:bg-slate-800 py-1.5 pl-3 pr-8 text-xs font-mono text-slate-700 dark:text-slate-200 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer shadow-xs focus-visible:ring-2 focus-visible:ring-indigo-500"
               >
                 <option value="all">⚡ All Projects (Global)</option>
                 {projects.map((p) => (
@@ -125,24 +129,39 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Connection status indicator */}
           <div className="flex items-center gap-1.5 sm:gap-2 text-xs font-mono" title={isMock ? 'Running with local demo dataset' : 'Connected to live FastAPI backend'}>
             <span
               aria-hidden="true"
               className={`h-2 w-2 rounded-full ${isMock ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}
             />
-            <span className="text-slate-600 hidden md:inline font-medium">
+            <span className="text-slate-600 dark:text-slate-400 hidden md:inline font-medium">
               {isMock ? 'Demo Mode' : 'Live Gateway'}
             </span>
           </div>
+
+          {/* Light / Dark Mode Toggle */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+            title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-amber-400 hover:text-slate-900 dark:hover:text-amber-300 hover:border-slate-300 dark:hover:border-slate-600 shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer"
+          >
+            {isDark ? (
+              <Sun className="h-4 w-4 text-amber-400 transition-transform duration-200 hover:rotate-45" />
+            ) : (
+              <Moon className="h-4 w-4 text-slate-600 transition-transform duration-200 hover:-rotate-12" />
+            )}
+          </button>
 
           <a
             href="https://github.com/bvishnuvaradhan/DevMemory"
             target="_blank"
             rel="noreferrer"
             aria-label="GitHub Repository (opens in new tab)"
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white/80 text-slate-600 hover:text-slate-900 hover:border-slate-300 shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:border-slate-300 dark:hover:border-slate-600 shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
             title="GitHub Repository"
           >
             <Github className="h-4 w-4" />
@@ -161,10 +180,10 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
             if (e.target === e.currentTarget) setIsMobileMenuOpen(false);
           }}
         >
-          <div className="w-full max-h-[85vh] overflow-y-auto bg-white/95 backdrop-blur-xl border-b border-slate-200 p-4 shadow-2xl space-y-5 animate-in slide-in-from-top-2 duration-150">
+          <div className="w-full max-h-[85vh] overflow-y-auto bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 p-4 shadow-2xl space-y-5 animate-in slide-in-from-top-2 duration-150">
             {/* Scope Selector on Mobile */}
             <div>
-              <label htmlFor="mobile-project-select" className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1.5 font-mono">
+              <label htmlFor="mobile-project-select" className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1.5 font-mono">
                 Active Project Scope
               </label>
               <div className="relative">
@@ -173,7 +192,7 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
                   aria-label="Select active project scope on mobile"
                   value={selectedProjectId || 'all'}
                   onChange={handleProjectChange}
-                  className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-3 pr-8 text-xs font-mono text-slate-800 shadow-xs focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  className="w-full appearance-none rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 pl-3 pr-8 text-xs font-mono text-slate-800 dark:text-slate-200 shadow-xs focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
                 >
                   <option value="all">⚡ All Projects (Global Scope)</option>
                   {projects.map((p) => (
@@ -188,7 +207,7 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
 
             {/* Platform Navigation */}
             <div>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1.5 font-mono">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1.5 font-mono">
                 Platform Features
               </span>
               <nav aria-label="Mobile platform features" className="space-y-1">
@@ -221,7 +240,7 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
 
             {/* Project Workspaces list */}
             <div>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1.5 font-mono">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 block mb-1.5 font-mono">
                 Workspaces ({projects.length})
               </span>
               <nav aria-label="Mobile workspaces navigation" className="space-y-1">
@@ -232,8 +251,8 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
                     className={({ isActive }) =>
                       `flex items-center justify-between px-3 py-1.5 text-xs rounded-xl transition-all duration-150 ${
                         isActive
-                          ? 'bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                          ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 font-semibold border border-indigo-200 dark:border-indigo-800/60'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800'
                       }`
                     }
                   >
@@ -242,7 +261,7 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
                       <span className="truncate">{p.name}</span>
                     </div>
                     {p.failureCount > 0 && (
-                      <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-mono text-rose-600 font-semibold border border-rose-200">
+                      <span className="rounded-full bg-rose-50 dark:bg-rose-950/50 px-2 py-0.5 text-[10px] font-mono text-rose-600 dark:text-rose-400 font-semibold border border-rose-200 dark:border-rose-800">
                         {p.failureCount}
                       </span>
                     )}
@@ -251,13 +270,38 @@ export default function Navbar({ projects = [], selectedProjectId, onSelectProje
               </nav>
             </div>
 
+            {/* Theme Toggle Row on Mobile */}
+            <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between">
+              <span className="text-xs font-mono text-slate-600 dark:text-slate-400 font-medium">
+                Interface Theme:
+              </span>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+                className="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-700 dark:text-slate-200 shadow-xs cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700"
+              >
+                {isDark ? (
+                  <>
+                    <Sun className="h-3.5 w-3.5 text-amber-400" />
+                    <span>Dark Theme</span>
+                  </>
+                ) : (
+                  <>
+                    <Moon className="h-3.5 w-3.5 text-slate-600" />
+                    <span>Light Theme</span>
+                  </>
+                )}
+              </button>
+            </div>
+
             {/* Memory indicator box */}
-            <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 text-xs font-mono text-indigo-900 flex items-center justify-between">
+            <div className="rounded-xl border border-indigo-100 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/40 p-3 text-xs font-mono text-indigo-900 dark:text-indigo-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <BrainCircuit className="h-4 w-4 text-indigo-600" />
+                <BrainCircuit className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                 <span className="font-semibold">3-Tier Dev Memory</span>
               </div>
-              <div className="flex items-center gap-1 text-[11px] text-indigo-600">
+              <div className="flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400">
                 <Database className="h-3 w-3" />
                 <span>MongoDB</span>
               </div>

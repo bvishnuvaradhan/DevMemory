@@ -40,12 +40,12 @@ export default function App() {
   const selectedProjectId = match ? match[1] : null;
 
   return (
-    <div className="flex h-screen w-full flex-col bg-[#F4F7FC] text-slate-800 relative overflow-hidden">
+    <div className="flex h-screen w-full flex-col bg-[#F4F7FC] dark:bg-[#0B0F19] text-slate-800 dark:text-slate-100 relative overflow-hidden transition-colors duration-200">
       {/* Soft background ambient pastel gradients for glassmorphism */}
       <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
-        <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-blue-100/70 blur-3xl" />
-        <div className="absolute top-1/4 -right-32 w-96 h-96 rounded-full bg-purple-100/70 blur-3xl" />
-        <div className="absolute -bottom-32 left-1/3 w-96 h-96 rounded-full bg-emerald-100/50 blur-3xl" />
+        <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-blue-100/70 dark:bg-indigo-950/40 blur-3xl transition-colors duration-300" />
+        <div className="absolute top-1/4 -right-32 w-96 h-96 rounded-full bg-purple-100/70 dark:bg-purple-950/30 blur-3xl transition-colors duration-300" />
+        <div className="absolute -bottom-32 left-1/3 w-96 h-96 rounded-full bg-emerald-100/50 dark:bg-emerald-950/20 blur-3xl transition-colors duration-300" />
       </div>
 
       {/* Top Header: Stationary & fixed at top of viewport */}

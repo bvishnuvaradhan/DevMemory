@@ -65,10 +65,10 @@ export default function GlobalDashboard({ onDataLoaded }) {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 font-mono flex items-center gap-2">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 font-mono flex items-center gap-2">
             Global Platform Overview
           </h1>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             Real-time command telemetry, cross-project memory retrieval, and verified fix rates.
           </p>
         </div>
@@ -77,9 +77,9 @@ export default function GlobalDashboard({ onDataLoaded }) {
           onClick={() => loadData(true)}
           disabled={refreshing}
           aria-label="Refresh platform telemetry"
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2 text-xs font-mono text-slate-700 hover:bg-white hover:text-slate-900 shadow-xs hover:border-slate-300 transition-all cursor-pointer self-start sm:self-auto"
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/80 px-3.5 py-2 text-xs font-mono text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white shadow-xs hover:border-slate-300 dark:hover:border-slate-600 transition-all cursor-pointer self-start sm:self-auto"
         >
-          <RefreshCw className={`h-3.5 w-3.5 text-indigo-500 ${refreshing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 ${refreshing ? 'animate-spin' : ''}`} />
           <span>Refresh Telemetry</span>
         </button>
       </div>
@@ -132,8 +132,8 @@ export default function GlobalDashboard({ onDataLoaded }) {
       <div>
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">Registered Project Workspaces</h2>
-            <p className="text-xs text-slate-500">Select a project to explore its runs, diagnoses, and memory bank.</p>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">Registered Project Workspaces</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Select a project to explore its runs, diagnoses, and memory bank.</p>
           </div>
         </div>
         <ProjectsGrid projects={projects} />
@@ -152,17 +152,17 @@ export default function GlobalDashboard({ onDataLoaded }) {
 
       {/* Section 4: Global Performance Pulse */}
       {overview?.performanceTrend && overview.performanceTrend.length > 0 && (
-        <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-5 shadow-glass space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div className="rounded-2xl border border-white/80 dark:border-slate-800/80 bg-white/75 dark:bg-slate-900/75 backdrop-blur-md p-5 shadow-glass space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
             <div className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-brand-500" />
-              <h3 className="text-sm font-semibold text-slate-900 font-mono">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 font-mono">
                 Cross-Project Execution Time Pulse
               </h3>
             </div>
             <Link
               to="/performance"
-              className="text-xs font-mono text-indigo-600 hover:text-indigo-800 font-semibold transition-colors flex items-center gap-1"
+              className="text-xs font-mono text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold transition-colors flex items-center gap-1"
             >
               <span>Open Performance Lab →</span>
             </Link>
@@ -170,7 +170,7 @@ export default function GlobalDashboard({ onDataLoaded }) {
           <div className="h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={overview.performanceTrend} margin={{ top: 10, right: 20, left: -10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#94A3B8" opacity={0.25} />
                 <XAxis dataKey="timestamp" stroke="#94A3B8" tick={{ fontSize: 11, fill: '#64748B', fontFamily: 'monospace' }} />
                 <YAxis stroke="#94A3B8" tick={{ fontSize: 11, fill: '#64748B', fontFamily: 'monospace' }} unit="ms" />
                 <Tooltip
@@ -178,10 +178,10 @@ export default function GlobalDashboard({ onDataLoaded }) {
                     if (active && payload && payload.length) {
                       const d = payload[0].payload;
                       return (
-                        <div className="rounded-xl bg-white/95 backdrop-blur-md border border-slate-200 p-2.5 shadow-lg text-xs font-mono">
-                          <span className="text-slate-500">Time: {d.timestamp}</span>
-                          <div className="text-slate-900 font-bold">Duration: {d.durationMs}ms</div>
-                          <div className="text-emerald-600 font-semibold">Baseline: {d.baselineMs}ms</div>
+                        <div className="rounded-xl bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border border-slate-200 dark:border-slate-700 p-2.5 shadow-lg text-xs font-mono text-slate-800 dark:text-slate-100">
+                          <span className="text-slate-500 dark:text-slate-400">Time: {d.timestamp}</span>
+                          <div className="text-slate-900 dark:text-white font-bold">Duration: {d.durationMs}ms</div>
+                          <div className="text-emerald-600 dark:text-emerald-400 font-semibold">Baseline: {d.baselineMs}ms</div>
                         </div>
                       );
                     }

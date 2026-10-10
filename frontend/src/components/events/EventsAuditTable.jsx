@@ -46,42 +46,42 @@ function getEventTypeBadge(type) {
   switch (norm) {
     case 'COMMAND_RUN':
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-mono text-slate-700 border border-slate-200 font-medium">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-mono text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-medium">
           <Terminal className="h-3 w-3 text-sky-500" />
           <span>Command</span>
         </span>
       );
     case 'ERROR_INCIDENT':
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-mono text-rose-700 border border-rose-200 font-medium">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 dark:bg-rose-950/40 px-2.5 py-0.5 text-[11px] font-mono text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900/50 font-medium">
           <AlertTriangle className="h-3 w-3 text-rose-500" />
           <span>Incident</span>
         </span>
       );
     case 'AI_DIAGNOSIS':
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-0.5 text-[11px] font-mono text-indigo-700 border border-indigo-200 font-medium">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-0.5 text-[11px] font-mono text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900/50 font-medium">
           <Sparkles className="h-3 w-3 text-indigo-500" />
           <span>AI Diagnosis</span>
         </span>
       );
     case 'FIX_VERIFICATION':
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-mono text-emerald-700 border border-emerald-200 font-medium">
-          <ShieldCheck className="h-3 w-3 text-emerald-600" />
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-0.5 text-[11px] font-mono text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50 font-medium">
+          <ShieldCheck className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
           <span>Fix Verification</span>
         </span>
       );
     case 'PERFORMANCE_REGRESSION':
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-mono text-amber-800 border border-amber-200 font-medium">
-          <TrendingUp className="h-3 w-3 text-amber-600" />
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 dark:bg-amber-950/40 px-2.5 py-0.5 text-[11px] font-mono text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50 font-medium">
+          <TrendingUp className="h-3 w-3 text-amber-600 dark:text-amber-400" />
           <span>Regression</span>
         </span>
       );
     default:
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-mono text-slate-600 border border-slate-200">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-mono text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
           <HelpCircle className="h-3 w-3 text-slate-400" />
           <span>{type || 'Event'}</span>
         </span>
@@ -221,21 +221,21 @@ export default function EventsAuditTable({
     <div className="space-y-4">
       {/* Demonstration Banner */}
       {isMock && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-2.5 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 font-mono shadow-xs">
+        <div className="rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/80 dark:bg-amber-950/30 px-4 py-2.5 text-xs text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 font-mono shadow-xs">
           <div className="flex items-center gap-2">
-            <Database className="h-4 w-4 text-amber-600 shrink-0" />
+            <Database className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
             <span>
               <strong>Demonstration Event Stream:</strong> Audited telemetry records shown below represent simulated command lifecycles.
             </span>
           </div>
-          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] text-amber-900 border border-amber-300 uppercase shrink-0 font-semibold">
+          <span className="rounded-full bg-amber-100 dark:bg-amber-900/40 px-2.5 py-0.5 text-[10px] text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800/60 uppercase shrink-0 font-semibold">
             MOCK AUDIT LOG
           </span>
         </div>
       )}
 
       {/* Filter and Search Bar */}
-      <div className="rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md p-4 space-y-3 shadow-glass">
+      <div className="rounded-2xl border border-white/80 dark:border-slate-800 bg-white/75 dark:bg-slate-900/75 backdrop-blur-md p-4 space-y-3 shadow-glass">
         <div className="flex flex-col lg:flex-row gap-3">
           {/* Search Box */}
           <div className="relative flex-1">
@@ -246,7 +246,7 @@ export default function EventsAuditTable({
               placeholder="Search by Event ID, command, incident ID, project, or file..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs font-mono text-slate-800 placeholder-slate-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 shadow-xs"
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 pl-9 pr-3 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 shadow-xs"
             />
           </div>
 
@@ -256,7 +256,7 @@ export default function EventsAuditTable({
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
               aria-label="Filter events by type"
-              className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none shadow-xs"
+              className="w-full sm:w-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 px-3 text-xs font-mono text-slate-700 dark:text-slate-200 focus:border-brand-500 focus:outline-none shadow-xs"
             >
               {EVENT_TYPE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -270,7 +270,7 @@ export default function EventsAuditTable({
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
               aria-label="Filter events by status"
-              className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none shadow-xs"
+              className="w-full sm:w-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 px-3 text-xs font-mono text-slate-700 dark:text-slate-200 focus:border-brand-500 focus:outline-none shadow-xs"
             >
               {STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -285,7 +285,7 @@ export default function EventsAuditTable({
                 value={selectedProject}
                 onChange={(e) => setSelectedProject(e.target.value)}
                 aria-label="Filter events by project"
-                className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 focus:border-brand-500 focus:outline-none shadow-xs"
+                className="w-full sm:w-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 px-3 text-xs font-mono text-slate-700 dark:text-slate-200 focus:border-brand-500 focus:outline-none shadow-xs"
               >
                 <option value="ALL">All Projects ({projects.length})</option>
                 {projects.map((p) => (
@@ -302,7 +302,7 @@ export default function EventsAuditTable({
                 setSortOrder((prev) => (prev === 'NEWEST' ? 'OLDEST' : 'NEWEST'))
               }
               aria-label={`Toggle sort order, current: ${sortOrder === 'NEWEST' ? 'Newest First' : 'Oldest First'}`}
-              className="w-full sm:w-auto flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition-colors cursor-pointer shrink-0 shadow-xs font-medium"
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 py-2 px-3 text-xs font-mono text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer shrink-0 shadow-xs font-medium"
               title="Toggle Sort Order"
             >
               <ArrowUpDown className="h-3.5 w-3.5 text-brand-500" />
@@ -312,7 +312,7 @@ export default function EventsAuditTable({
         </div>
 
         {/* Filter Summary & Result Count */}
-        <div className="flex items-center justify-between text-xs font-mono text-slate-500 pt-1 border-t border-slate-100">
+        <div className="flex items-center justify-between text-xs font-mono text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
           <span>
             Showing <strong>{filteredEvents.length}</strong> of{' '}
             <strong>{events.length}</strong> events
@@ -328,7 +328,7 @@ export default function EventsAuditTable({
                 setSelectedStatus('ALL');
                 if (!scopedProjectId) setSelectedProject('ALL');
               }}
-              className="text-brand-600 hover:text-brand-700 cursor-pointer font-medium"
+              className="text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 cursor-pointer font-medium"
             >
               Clear filters
             </button>
@@ -344,10 +344,10 @@ export default function EventsAuditTable({
           icon={History}
         />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-white/80 bg-white/75 backdrop-blur-md shadow-glass">
+        <div className="overflow-hidden rounded-2xl border border-white/80 dark:border-slate-800 bg-white/75 dark:bg-slate-900/75 backdrop-blur-md shadow-glass">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-slate-50/80 text-slate-500 border-b border-slate-200/80">
+              <thead className="bg-slate-50/80 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 border-b border-slate-200/80 dark:border-slate-800">
                 <tr>
                   <th className="px-4 py-3 uppercase tracking-wider text-[10px]">Event ID</th>
                   <th className="px-4 py-3 uppercase tracking-wider text-[10px]">Timestamp</th>
@@ -359,24 +359,24 @@ export default function EventsAuditTable({
                   <th className="px-4 py-3 uppercase tracking-wider text-[10px] text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
                 {filteredEvents.map((evt) => {
                   return (
                     <tr
                       key={evt.eventId}
-                      className="hover:bg-slate-50/60 transition-colors"
+                      className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors"
                     >
                       {/* Event ID */}
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="font-semibold text-brand-700 bg-brand-50 px-2 py-0.5 rounded-lg border border-brand-200">
+                        <span className="font-semibold text-brand-700 dark:text-brand-300 bg-brand-50 dark:bg-brand-950/40 px-2 py-0.5 rounded-lg border border-brand-200 dark:border-brand-900/50">
                           {evt.eventId}
                         </span>
                       </td>
 
                       {/* Timestamp */}
-                      <td className="px-4 py-3 whitespace-nowrap text-slate-500">
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-500 dark:text-slate-400">
                         <span className="flex items-center gap-1.5 text-[11px]">
-                          <Clock className="h-3 w-3 text-slate-400" />
+                          <Clock className="h-3 w-3 text-slate-400 dark:text-slate-500" />
                           {formatSafeTimestamp(evt.timestamp)}
                         </span>
                       </td>
@@ -395,7 +395,7 @@ export default function EventsAuditTable({
                       <td className="px-4 py-3 whitespace-nowrap">
                         <Link
                           to={`/projects/${evt.projectId}`}
-                          className="hover:text-brand-600 transition-colors flex items-center gap-1 text-slate-800 font-medium"
+                          className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-1 text-slate-800 dark:text-slate-200 font-medium"
                         >
                           <Layers className="h-3 w-3 text-brand-500" />
                           <span>{evt.projectName || evt.projectId}</span>
@@ -405,16 +405,16 @@ export default function EventsAuditTable({
                       {/* Command / Summary */}
                       <td className="px-4 py-3 max-w-xs md:max-w-sm">
                         {evt.relatedCommand ? (
-                          <div className="truncate text-slate-800 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200/80 text-[11px]">
+                          <div className="truncate text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200/80 dark:border-slate-700 text-[11px]">
                             {evt.relatedCommand}
                           </div>
                         ) : (
-                          <span className="text-slate-600 truncate block">
+                          <span className="text-slate-600 dark:text-slate-400 truncate block">
                             {evt.summary || '—'}
                           </span>
                         )}
                         {evt.summary && evt.relatedCommand && (
-                          <span className="text-[10px] text-slate-400 block truncate mt-0.5">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 block truncate mt-0.5">
                             {evt.summary}
                           </span>
                         )}
@@ -423,16 +423,16 @@ export default function EventsAuditTable({
                       {/* Source Location */}
                       <td className="px-4 py-3 whitespace-nowrap">
                         {evt.sourceLocation?.file ? (
-                          <span className="inline-flex items-center gap-1 text-rose-700 text-[11px] bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200 font-medium">
+                          <span className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-300 text-[11px] bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded-md border border-rose-200 dark:border-rose-900/50 font-medium">
                             <FileCode2 className="h-3 w-3" />
                             {evt.sourceLocation.file}:{evt.sourceLocation.line || 0}
                           </span>
                         ) : evt.relatedIncidentId ? (
-                          <span className="text-[11px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 font-medium">
+                          <span className="text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-900/50 font-medium">
                             {evt.relatedIncidentId}
                           </span>
                         ) : (
-                          <span className="text-slate-400">—</span>
+                          <span className="text-slate-400 dark:text-slate-600">—</span>
                         )}
                       </td>
 
@@ -442,7 +442,7 @@ export default function EventsAuditTable({
                           {evt.relatedIncidentId && (
                             <Link
                               to={`/projects/${evt.projectId}/errors`}
-                              className="text-[11px] text-rose-600 hover:text-rose-700 hover:underline flex items-center gap-0.5 font-medium"
+                              className="text-[11px] text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:underline flex items-center gap-0.5 font-medium"
                               title="Inspect Incident"
                             >
                               <span>Incident</span>
@@ -451,7 +451,7 @@ export default function EventsAuditTable({
                           )}
                           <button
                             onClick={() => setSelectedEventModal(evt)}
-                            className="rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] text-slate-700 hover:bg-slate-200 hover:text-slate-900 border border-slate-200/80 transition-colors cursor-pointer shadow-xs font-medium"
+                            className="rounded-lg bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-[11px] text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white border border-slate-200/80 dark:border-slate-700 transition-colors cursor-pointer shadow-xs font-medium"
                           >
                             Details
                           </button>
@@ -472,32 +472,32 @@ export default function EventsAuditTable({
           onClick={(e) => {
             if (e.target === e.currentTarget) setSelectedEventModal(null);
           }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 dark:bg-black/60 p-4 backdrop-blur-sm"
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="audit-event-modal-title"
-            className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-white/90 bg-white/95 backdrop-blur-md p-6 shadow-2xl space-y-4 text-slate-800"
+            className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-white/90 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-6 shadow-2xl space-y-4 text-slate-800 dark:text-slate-100"
           >
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <History className="h-4 w-4 text-brand-500" />
-                <h3 id="audit-event-modal-title" className="text-sm font-semibold text-slate-900 font-mono">
+                <h3 id="audit-event-modal-title" className="text-sm font-semibold text-slate-900 dark:text-white font-mono">
                   Event Record: {selectedEventModal.eventId}
                 </h3>
               </div>
               <button
                 onClick={() => setSelectedEventModal(null)}
                 aria-label="Close event details modal"
-                className="text-slate-400 hover:text-slate-700 text-xs font-mono cursor-pointer transition-colors"
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs font-mono cursor-pointer transition-colors"
               >
                 ✕ Close
               </button>
             </div>
 
             <div className="space-y-3 text-xs font-mono">
-              <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3.5 rounded-xl border border-slate-200/80">
+              <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200/80 dark:border-slate-700">
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-semibold">Type</span>
                   <div className="mt-0.5">{getEventTypeBadge(selectedEventModal.eventType)}</div>
@@ -508,13 +508,13 @@ export default function EventsAuditTable({
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-semibold">Timestamp</span>
-                  <div className="text-slate-700 mt-0.5 font-medium">
+                  <div className="text-slate-700 dark:text-slate-200 mt-0.5 font-medium">
                     {formatSafeTimestamp(selectedEventModal.timestamp)}
                   </div>
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-semibold">Project</span>
-                  <div className="text-slate-700 mt-0.5 font-medium">
+                  <div className="text-slate-700 dark:text-slate-200 mt-0.5 font-medium">
                     {selectedEventModal.projectName} ({selectedEventModal.projectId})
                   </div>
                 </div>
@@ -523,7 +523,7 @@ export default function EventsAuditTable({
               {selectedEventModal.summary && (
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-semibold">Summary</span>
-                  <p className="mt-1 text-slate-800 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <p className="mt-1 text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                     {selectedEventModal.summary}
                   </p>
                 </div>
@@ -532,7 +532,7 @@ export default function EventsAuditTable({
               {selectedEventModal.relatedCommand && (
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-semibold">Command</span>
-                  <code className="block mt-1 text-brand-700 bg-slate-100 p-2.5 rounded-xl border border-slate-200 break-all font-mono font-medium">
+                  <code className="block mt-1 text-brand-700 dark:text-brand-300 bg-slate-100 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 break-all font-mono font-medium">
                     {selectedEventModal.relatedCommand}
                   </code>
                 </div>
@@ -541,7 +541,7 @@ export default function EventsAuditTable({
               {selectedEventModal.sourceLocation && (
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-semibold">Source Code Location</span>
-                  <div className="mt-1 text-rose-700 bg-rose-50 p-2.5 rounded-xl border border-rose-200 flex items-center gap-1.5 font-medium">
+                  <div className="mt-1 text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 p-2.5 rounded-xl border border-rose-200 dark:border-rose-900/50 flex items-center gap-1.5 font-medium">
                     <FileCode2 className="h-3.5 w-3.5" />
                     <span>
                       {selectedEventModal.sourceLocation.file}:
@@ -554,17 +554,17 @@ export default function EventsAuditTable({
               {selectedEventModal.details && (
                 <div>
                   <span className="text-slate-400 text-[10px] uppercase font-semibold">Audit Details</span>
-                  <p className="mt-1 text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-200 leading-relaxed font-sans text-xs">
+                  <p className="mt-1 text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 leading-relaxed font-sans text-xs">
                     {selectedEventModal.details}
                   </p>
                 </div>
               )}
             </div>
 
-            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-slate-800">
               <Link
                 to={`/projects/${selectedEventModal.projectId}`}
-                className="text-xs font-mono text-brand-600 hover:text-brand-700 flex items-center gap-1 font-medium"
+                className="text-xs font-mono text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 flex items-center gap-1 font-medium"
                 onClick={() => setSelectedEventModal(null)}
               >
                 <span>Go to Project Workspace</span>
@@ -572,7 +572,7 @@ export default function EventsAuditTable({
               </Link>
               <button
                 onClick={() => setSelectedEventModal(null)}
-                className="rounded-xl bg-slate-100 px-3.5 py-1.5 text-xs font-mono text-slate-700 hover:bg-slate-200 hover:text-slate-900 border border-slate-200 transition-colors shadow-xs cursor-pointer font-medium"
+                className="rounded-xl bg-slate-100 dark:bg-slate-800 px-3.5 py-1.5 text-xs font-mono text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-700 transition-colors shadow-xs cursor-pointer font-medium"
               >
                 Done
               </button>
