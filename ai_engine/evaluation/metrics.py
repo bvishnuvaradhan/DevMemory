@@ -10,7 +10,10 @@ class EvaluationMetrics:
 
     # Level 1 Retrieval Metrics
     retrieval_recall_at_3: float  # Top-3 contains expected KB / cases with expected KB
+    retrieval_recall_at_5: float  # Top-5 contains expected KB / cases with expected KB
     retrieval_precision_at_1: float  # Top-1 is expected KB / cases with expected KB
+    retrieval_precision_at_3: float  # Standard IR Precision@3: Hits@3 / (3 * cases with expected KB)
+    retrieval_mrr: float  # Mean Reciprocal Rank over cases with expected KB
     false_positive_rate: float  # Surfaced match above threshold / cases with no expected match
 
     # Level 2 & 3 Scoping & Authorization
@@ -53,10 +56,25 @@ class EvaluationMetrics:
                     "formula": "Hits in top-3 / Scenarios with expected KB target",
                     "definition": "Proportion of scenarios with a target KB item where the target was present in the top-3 ranked results.",
                 },
+                "RetrievalRecall@5": {
+                    "value": round(self.retrieval_recall_at_5 * 100, 2),
+                    "formula": "Hits in top-5 / Scenarios with expected KB target",
+                    "definition": "Proportion of scenarios with a target KB item where the target was present in the top-5 ranked results.",
+                },
                 "RetrievalPrecision@1": {
                     "value": round(self.retrieval_precision_at_1 * 100, 2),
                     "formula": "Top-1 exact hits / Scenarios with expected KB target",
                     "definition": "Proportion of scenarios with a target KB item where the top-ranked result matched the target.",
+                },
+                "RetrievalPrecision@3": {
+                    "value": round(self.retrieval_precision_at_3 * 100, 2),
+                    "formula": "Hits in top-3 / (3 * Scenarios with expected KB target)",
+                    "definition": "Standard Information Retrieval Precision@3 for single-target queries (|Rel|=1, bounded by 33.33%).",
+                },
+                "RetrievalMRR": {
+                    "value": round(self.retrieval_mrr, 4),
+                    "formula": "(1/N) * sum(1/rank_i) for scenarios with expected KB target",
+                    "definition": "Mean Reciprocal Rank measuring average reciprocal position of target item (1.0 = always top-1).",
                 },
                 "FalsePositiveRate": {
                     "value": round(self.false_positive_rate * 100, 2),

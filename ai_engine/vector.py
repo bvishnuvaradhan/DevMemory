@@ -24,6 +24,34 @@ logger = logging.getLogger(__name__)
 DEFAULT_VECTOR_DIMENSION = 128
 
 
+def build_embedding_text(
+    error_message: str,
+    stack_trace: Optional[str] = None,
+    command: Optional[str] = None,
+) -> str:
+    """Canonical text representation for embedding both queries and stored incidents.
+
+    Guarantees query vs document preprocessing parity:
+    1. Combines error_message, stack_trace, and command with stable ordering.
+    2. Redacts sensitive credentials (API keys, bearer tokens, passwords).
+    3. Masks local file paths to user-agnostic representations.
+    4. Truncates cleanly to 1,000 characters to prevent token exhaustion and cost spikes.
+    """
+    parts: List[str] = []
+    if error_message and error_message.strip():
+        parts.append(error_message.strip())
+    if stack_trace and stack_trace.strip():
+        parts.append(stack_trace.strip())
+    if command and command.strip():
+        parts.append(command.strip())
+
+    raw = " ".join(parts)
+    sanitized = redact_secrets(sanitize_file_path(raw))
+    if len(sanitized) > 1000:
+        sanitized = sanitized[:1000].rsplit(" ", 1)[0] + " ... [truncated]"
+    return sanitized.strip()
+
+
 @runtime_checkable
 class EmbeddingProvider(Protocol):
     """Protocol for generating vector embeddings from diagnostic text."""
@@ -309,7 +337,11 @@ class MockVectorSearchAdapter:
         """Add an incident and its vector representation to the store."""
         inc_copy = dict(incident)
         if embedding is None:
-            text = f"{inc_copy.get('error_message', '')} {inc_copy.get('stack_trace', '')} {inc_copy.get('command', '')}"
+            text = build_embedding_text(
+                error_message=inc_copy.get("error_message", ""),
+                stack_trace=inc_copy.get("stack_trace"),
+                command=inc_copy.get("command"),
+            )
             embedding = self.embedding_provider.get_embedding(text)
 
         inc_copy["_embedding"] = embedding

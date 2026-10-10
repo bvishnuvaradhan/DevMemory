@@ -15,10 +15,25 @@
         "formula": "Hits in top-3 / Scenarios with expected KB target",
         "definition": "Proportion of scenarios with a target KB item where the target was present in the top-3 ranked results."
       },
+      "RetrievalRecall@5": {
+        "value": 100.0,
+        "formula": "Hits in top-5 / Scenarios with expected KB target",
+        "definition": "Proportion of scenarios with a target KB item where the target was present in the top-5 ranked results."
+      },
       "RetrievalPrecision@1": {
         "value": 100.0,
         "formula": "Top-1 exact hits / Scenarios with expected KB target",
         "definition": "Proportion of scenarios with a target KB item where the top-ranked result matched the target."
+      },
+      "RetrievalPrecision@3": {
+        "value": 33.33,
+        "formula": "Hits in top-3 / (3 * Scenarios with expected KB target)",
+        "definition": "Standard Information Retrieval Precision@3 for single-target queries (|Rel|=1, bounded by 33.33%)."
+      },
+      "RetrievalMRR": {
+        "value": 1.0,
+        "formula": "(1/N) * sum(1/rank_i) for scenarios with expected KB target",
+        "definition": "Mean Reciprocal Rank measuring average reciprocal position of target item (1.0 = always top-1)."
       },
       "FalsePositiveRate": {
         "value": 0.0,

@@ -50,24 +50,28 @@ class MockSemanticDenseClient:
         vec = [0.0] * self.dimension
         lower = text.lower()
 
+        # Partition vector coordinates dynamically across semantic concepts
+        dim = self.dimension
+        step = max(1, dim // 4)
+
         # Semantic concept 1: Token / Session Expiration
         if any(k in lower for k in ("expired", "expiration", "validity window", "token has expired")):
-            for i in range(100):
+            for i in range(0, min(step, dim)):
                 vec[i] = 1.0
 
         # Semantic concept 2: Network Unreachable / Connection Refused
-        elif any(k in lower for k in ("connection refused", "could not connect", "econnrefused", "timed out on port")):
-            for i in range(100, 200):
+        elif any(k in lower for k in ("connection refused", "could not connect", "econnrefused", "timed out on port", "unreachable")):
+            for i in range(min(step, dim), min(step * 2, dim)):
                 vec[i] = 1.0
 
         # Semantic concept 3: Syntax error in file
         elif any(k in lower for k in ("syntaxerror", "invalid syntax")):
-            for i in range(200, 300):
+            for i in range(min(step * 2, dim), min(step * 3, dim)):
                 vec[i] = 1.0
 
         # Default fallback
         else:
-            for i in range(300, 400):
+            for i in range(min(step * 3, dim), dim):
                 vec[i] = 0.5
 
         # L2 norm

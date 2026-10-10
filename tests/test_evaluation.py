@@ -65,7 +65,10 @@ def test_run_evaluation_quality_benchmarks():
 
     # Retrieval metrics
     assert metrics.retrieval_recall_at_3 == 1.0
+    assert metrics.retrieval_recall_at_5 == 1.0
     assert metrics.retrieval_precision_at_1 >= 0.90
+    assert metrics.retrieval_precision_at_3 >= 0.30
+    assert metrics.retrieval_mrr == 1.0
     assert metrics.false_positive_rate == 0.0
 
     # Diagnosis quality & Grounding

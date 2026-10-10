@@ -121,8 +121,19 @@ def calculate_hybrid_score(
             )
     else:
         # Lexical-only path (e.g. when vector service is disabled or offline)
-        fused = lexical_score + reliability_boost
-        explanation_parts.append(f"Lexical match ({lexical_score:.0%})")
+        if has_contradictory_type:
+            fused = min(lexical_score, 0.35)
+            explanation_parts.append(
+                f"Contradictory exception type ('{q_type}' vs '{c_type}'); capped to <= 0.35"
+            )
+        elif has_incompatible_tech:
+            fused = min(lexical_score * 0.75, 0.40)
+            explanation_parts.append(
+                f"Incompatible runtime stack ('{q_tech}' vs '{c_tech}'); discounted"
+            )
+        else:
+            fused = lexical_score + reliability_boost
+            explanation_parts.append(f"Lexical match ({lexical_score:.0%})")
 
     if reliability_boost > 0 and not is_exact_sig:
         explanation_parts.append("Precedent verified by test execution")

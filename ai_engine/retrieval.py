@@ -14,6 +14,7 @@ from ai_engine.knowledge import get_default_knowledge_base
 from ai_engine.matching import (
     calculate_similarity,
     compute_error_signature,
+    extract_exception_type,
     normalize_error_message,
 )
 from ai_engine.privacy import (
@@ -152,6 +153,12 @@ def _match_project_memory(
         }
         score, explanation = calculate_similarity(query_dict, cand_dict)
 
+        # Contradiction guard: conflicting exception types must never exceed 0.35
+        q_type = extract_exception_type(request.error_message, request.stack_trace)
+        c_type = extract_exception_type(cand.get("error_message", ""), cand.get("stack_trace"))
+        if q_type and c_type and q_type.lower() != c_type.lower():
+            score = min(score, 0.35)
+
         # Boost score slightly if exact error signature matches
         q_sig = compute_error_signature(request.error_message, request.stack_trace, request.command)
         c_sig = cand.get("error_signature")
@@ -227,6 +234,13 @@ def _match_cross_project_memory(
             "command": cand.get("command", ""),
         }
         score, explanation = calculate_similarity(query_dict, cand_dict)
+
+        # Contradiction guard: conflicting exception types must never exceed 0.35
+        q_type = extract_exception_type(request.error_message, request.stack_trace)
+        c_type = extract_exception_type(cand.get("error_message", ""), cand.get("stack_trace"))
+        if q_type and c_type and q_type.lower() != c_type.lower():
+            score = min(score, 0.35)
+
         if score >= threshold:
             v_status_raw = cand.get("verification_status", FixVerificationStatus.UNVERIFIED)
             v_status = (
@@ -284,10 +298,14 @@ def retrieve_memory(
     query_vector: Optional[List[float]] = None
     if vector_adapter:
         try:
-            from ai_engine.vector import DeterministicEmbeddingProvider
+            from ai_engine.vector import DeterministicEmbeddingProvider, build_embedding_text
 
             emb_prov = embedding_provider or DeterministicEmbeddingProvider()
-            q_text = f"{request.error_message} {request.stack_trace or ''} {request.command}"
+            q_text = build_embedding_text(
+                error_message=request.error_message,
+                stack_trace=request.stack_trace,
+                command=request.command,
+            )
             query_vector = emb_prov.get_embedding(q_text)
         except Exception as exc:
             logger.warning("Query vector embedding generation failed: %s", exc)

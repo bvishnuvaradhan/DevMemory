@@ -27,7 +27,10 @@ DevMemory distinguishes five clear tiers of verification:
 | Metric Name | Value | Numerator / Denominator | Definition |
 | :--- | :---: | :---: | :--- |
 | **RetrievalRecall@3** | **100.0%** | `Hits in top-3 / Scenarios with expected KB target` | Proportion of scenarios with a target KB item where the target was present in the top-3 ranked results. |
+| **RetrievalRecall@5** | **100.0%** | `Hits in top-5 / Scenarios with expected KB target` | Proportion of scenarios with a target KB item where the target was present in the top-5 ranked results. |
 | **RetrievalPrecision@1** | **100.0%** | `Top-1 exact hits / Scenarios with expected KB target` | Proportion of scenarios with a target KB item where the top-ranked result matched the target. |
+| **RetrievalPrecision@3** | **33.33%** | `Hits in top-3 / (3 * Scenarios with expected KB target)` | Standard Information Retrieval Precision@3 for single-target queries (|Rel|=1, bounded by 33.33%). |
+| **RetrievalMRR** | **1.0** | `(1/N) * sum(1/rank_i) for scenarios with expected KB target` | Mean Reciprocal Rank measuring average reciprocal position of target item (1.0 = always top-1). |
 | **FalsePositiveRate** | **0.0%** | `Non-target queries scoring >= 0.70 / Non-target scenarios` | Proportion of scenarios without a valid error target where unrelated items scored >= threshold. |
 | **ProjectScopingAccuracy** | **100.0%** | `Zero cross-project leaks into Level 2 / Total project queries` | Proportion of project queries where incidents from other projects were completely excluded from Level 2 memory. |
 | **CrossProjectAuthAccuracy** | **100.0%** | `Compliant auth & sanitization / Authorized cross-project queries` | Proportion of cross-project queries where server-side authorization and public policy were strictly enforced. |

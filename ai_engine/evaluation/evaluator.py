@@ -137,7 +137,9 @@ def run_evaluation(
     # Metric accumulators
     target_kb_cases = 0
     recall_at_3_hits = 0
+    recall_at_5_hits = 0
     precision_at_1_hits = 0
+    reciprocal_ranks: List[float] = []
 
     no_target_kb_cases = 0
     false_positive_cases = 0
@@ -218,17 +220,28 @@ def run_evaluation(
         # 3. Retrieval Evaluations
         if expected_kb:
             target_kb_cases += 1
-            top_3_ids = [m.incident_id for m in retrieval_res.general_matches[:3]]
+            all_general_ids = [m.incident_id for m in retrieval_res.general_matches]
+            top_3_ids = all_general_ids[:3]
+            top_5_ids = all_general_ids[:5]
             if expected_kb in top_3_ids:
                 recall_at_3_hits += 1
             else:
                 failures.append(f"Expected KB '{expected_kb}' not in top 3 general matches: {top_3_ids}")
                 failure_pattern_counts["3_missing_or_poor_retrieval"] += 1
 
+            if expected_kb in top_5_ids:
+                recall_at_5_hits += 1
+
             if top_3_ids and top_3_ids[0] == expected_kb:
                 precision_at_1_hits += 1
             elif not top_3_ids:
                 failures.append(f"Expected KB '{expected_kb}' but no general matches returned")
+
+            if expected_kb in all_general_ids:
+                r_pos = all_general_ids.index(expected_kb) + 1
+                reciprocal_ranks.append(1.0 / r_pos)
+            else:
+                reciprocal_ranks.append(0.0)
         else:
             no_target_kb_cases += 1
             if retrieval_res.general_matches and retrieval_res.general_matches[0].similarity_score > 0.70:
@@ -363,7 +376,10 @@ def run_evaluation(
 
     metrics = EvaluationMetrics(
         retrieval_recall_at_3=recall_at_3_hits / target_kb_cases if target_kb_cases else 1.0,
+        retrieval_recall_at_5=recall_at_5_hits / target_kb_cases if target_kb_cases else 1.0,
         retrieval_precision_at_1=precision_at_1_hits / target_kb_cases if target_kb_cases else 1.0,
+        retrieval_precision_at_3=(recall_at_3_hits / (3 * target_kb_cases)) if target_kb_cases else 0.3333,
+        retrieval_mrr=sum(reciprocal_ranks) / target_kb_cases if target_kb_cases else 1.0,
         false_positive_rate=false_positive_cases / no_target_kb_cases if no_target_kb_cases else 0.0,
         project_scoping_accuracy=project_scoping_passed / project_scoping_cases if project_scoping_cases else 1.0,
         cross_project_auth_accuracy=cross_project_passed / cross_project_cases if cross_project_cases else 1.0,
@@ -460,7 +476,7 @@ def generate_markdown_report(
 
     metrics_dict = metrics.to_dict()["metrics"]
     for name, data in metrics_dict.items():
-        val_str = f"{data['value']}%"
+        val_str = f"{data['value']}" if "MRR" in name else f"{data['value']}%"
         lines.append(f"| **{name}** | **{val_str}** | `{data.get('formula', 'Count / Total')}` | {data['definition']} |")
 
     lines.extend([
