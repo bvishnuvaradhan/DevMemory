@@ -102,14 +102,151 @@ class DeterministicEmbeddingProvider:
         return [0.0] * self._dim
 
 
+class DenseEmbeddingClient(Protocol):
+    """Protocol for external dense embedding API client (e.g. OpenAI text-embedding-3-small)."""
+
+    def create_embedding(self, text: str, model: str) -> List[float]:
+        """Call external embedding API endpoint and return float vector."""
+        ...
+
+
+class ConfigurableDenseEmbeddingProvider:
+    """Production-ready dense embedding provider with strict privacy pre-sanitization.
+
+    Guarantees:
+    - Automatically redacts synthetic and real API keys, bearer tokens, passwords,
+      and private file paths BEFORE sending any text payload to external embedding APIs.
+    - Truncates oversized diagnostic input to 1,000 characters to prevent high-cost token consumption.
+    - Validates dimension compatibility and unit-normalizes vector output.
+    - Handles timeouts and provider failures safely with deterministic fallback.
+    - Supports mock clients for 100% offline unit and CI execution without external API keys.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "text-embedding-3-small",
+        dimension: int = 1536,
+        client: Optional[DenseEmbeddingClient] = None,
+        fallback_provider: Optional[EmbeddingProvider] = None,
+    ) -> None:
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.model = model
+        self._dim = dimension
+        self._client = client
+        self._fallback = fallback_provider or DeterministicEmbeddingProvider(dimension=dimension)
+
+    @property
+    def dimension(self) -> int:
+        return self._dim
+
+    def sanitize_input(self, text: str) -> str:
+        """Sanitize and minimize diagnostic text before sending to embedding provider."""
+        if not text:
+            return ""
+        # 1. Redact secrets and private tokens
+        sanitized = redact_secrets(text)
+        # 2. Sanitize local machine and user paths
+        sanitized = sanitize_file_path(sanitized)
+        # 3. Truncate to reasonable context window (1,000 chars) to prevent excessive tokens
+        if len(sanitized) > 1000:
+            sanitized = sanitized[:1000].rsplit(" ", 1)[0] + " ... [truncated]"
+        return sanitized.strip()
+
+    def get_embedding(self, text: str) -> List[float]:
+        """Generate normalized dense embedding vector with fallback on missing credentials or API error."""
+        clean_text = self.sanitize_input(text)
+        if not clean_text:
+            return [0.0] * self._dim
+
+        # If custom client is injected (e.g. for offline mock testing)
+        if self._client is not None:
+            try:
+                raw_vec = self._client.create_embedding(clean_text, self.model)
+                return self._normalize_vector(raw_vec)
+            except Exception as exc:
+                logger.warning("Dense embedding client failed (%s); using deterministic fallback.", exc)
+                return self._fallback.get_embedding(clean_text)
+
+        # If live credentials exist and official openai SDK is installed
+        if self.api_key:
+            try:
+                import urllib.request
+                import json
+
+                url = "https://api.openai.com/v1/embeddings"
+                req_data = json.dumps({
+                    "input": clean_text,
+                    "model": self.model,
+                    "dimensions": self._dim,
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    url,
+                    data=req_data,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=5.0) as resp:
+                    resp_json = json.loads(resp.read().decode("utf-8"))
+                    raw_vec = resp_json["data"][0]["embedding"]
+                    return self._normalize_vector(raw_vec)
+            except Exception as exc:
+                logger.warning("Live dense embedding request failed (%s); falling back to deterministic.", exc)
+                return self._fallback.get_embedding(clean_text)
+
+        # Default when no external credentials configured: deterministic fallback
+        return self._fallback.get_embedding(clean_text)
+
+    def _normalize_vector(self, vector: List[float]) -> List[float]:
+        """Validate finite dimensions and unit normalize."""
+        if not vector or len(vector) != self._dim:
+            return [0.0] * self._dim
+
+        # Non-finite check (NaN, Inf)
+        if not all(math.isfinite(x) for x in vector):
+            return [0.0] * self._dim
+
+        norm = math.sqrt(sum(v * v for v in vector))
+        if norm > 0.0:
+            return [round(v / norm, 6) for v in vector]
+        return [0.0] * self._dim
+
+
+def get_configured_embedding_provider(
+    provider_type: Optional[str] = None,
+    dimension: Optional[int] = None,
+) -> EmbeddingProvider:
+    """Factory creating the appropriate embedding provider based on environment and configuration.
+
+    Defaults to 100% offline DeterministicEmbeddingProvider unless 'dense' is explicitly
+    requested or OPENAI_API_KEY is present.
+    """
+    p_type = (provider_type or os.getenv("DEVMEMORY_EMBEDDING_PROVIDER", "deterministic")).lower()
+    dim = dimension or int(os.getenv("DEVMEMORY_VECTOR_DIMENSION", str(DEFAULT_VECTOR_DIMENSION)))
+
+    if p_type == "dense" or (p_type == "auto" and os.getenv("OPENAI_API_KEY")):
+        return ConfigurableDenseEmbeddingProvider(dimension=dim)
+    return DeterministicEmbeddingProvider(dimension=dim)
+
+
 def cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
-    """Calculate cosine similarity between two float vectors in [0.0, 1.0]."""
+    """Calculate cosine similarity between two float vectors in [0.0, 1.0].
+
+    Safely rejects empty, mismatched, or non-finite (NaN / Inf) vector entries.
+    """
     if not vec_a or not vec_b or len(vec_a) != len(vec_b):
+        return 0.0
+
+    # Ensure all elements are valid finite numbers
+    if not all(math.isfinite(x) for x in vec_a) or not all(math.isfinite(y) for y in vec_b):
         return 0.0
 
     dot = sum(a * b for a, b in zip(vec_a, vec_b))
     # Dot product of unit vectors is in [-1.0, 1.0]; clamp and map to [0.0, 1.0]
     return max(0.0, min(1.0, dot))
+
 
 
 @dataclass
