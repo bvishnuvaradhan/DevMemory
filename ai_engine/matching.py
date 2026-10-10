@@ -20,6 +20,7 @@ EXCEPTION_TYPE_REGEX = re.compile(
     r"\b([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Warning|Fault|Panic))\b|"
     r"\b(NullPointerException|IllegalStateException|IllegalArgumentException|"
     r"ArrayIndexOutOfBoundsException|ClassCastException)\b|"
+    r"\b(ECONNREFUSED|EADDRINUSE|ENOENT|EACCES|EEXIST|ETIMEDOUT|ECONNRESET)\b|"
     r"\b(SIGSEGV|SIGABRT|SIGBUS)\b|"
     r"\b(panic: [^\n]+)\b",
     re.IGNORECASE,
@@ -35,6 +36,11 @@ TIMESTAMP_REGEX = re.compile(
 )
 PID_THREAD_REGEX = re.compile(r"\b(?:pid|process|thread|worker)\s*[:=]?\s*\d+\b", re.IGNORECASE)
 FILE_LINE_IN_TEXT_REGEX = re.compile(r"\bline\s+\d+\b", re.IGNORECASE)
+IP_PORT_REGEX = re.compile(
+    r"\b(?:\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|0\.0\.0\.0|::1)(?::\d+)?\b",
+    re.IGNORECASE,
+)
+
 
 # Stack frame extraction patterns
 PYTHON_FRAME_REGEX = re.compile(
@@ -102,6 +108,8 @@ def normalize_error_message(error_message: str) -> str:
     text = HEX_ADDRESS_REGEX.sub("<address>", text)
     text = PID_THREAD_REGEX.sub("<pid>", text)
     text = FILE_LINE_IN_TEXT_REGEX.sub("<line>", text)
+    text = IP_PORT_REGEX.sub("<host>:<port>", text)
+
 
     # Collapse multiple whitespaces and trim
     text = re.sub(r"\s+", " ", text).strip()
