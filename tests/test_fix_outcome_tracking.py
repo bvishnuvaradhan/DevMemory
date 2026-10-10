@@ -537,3 +537,237 @@ async def test_revert_verified_fix_clears_verified_at_and_revokes_memory(async_c
     enriched = repo._enrich_incident(raw_inc)
     assert enriched["verification_status"] == "failed"
     assert enriched.get("resolution_summary") is None
+
+
+@pytest.mark.anyio
+async def test_reject_caller_supplied_exit_code_zero_alone(async_client: AsyncClient, test_db):
+    """Scenario 9: A caller-supplied exit_code: 0 alone is rejected with HTTP 422."""
+    await async_client.post(
+        "/api/v1/projects",
+        json={"project_id": "proj_alone", "name": "Alone Test App"},
+    )
+    inc = await async_client.post(
+        "/api/v1/incidents",
+        json={"project_id": "proj_alone", "error_type": "ErrAlone", "error_message": "alone msg"},
+    )
+    inc_id = inc.json()["data"]["incident_id"]
+
+    fix_res = await async_client.post(
+        f"/api/v1/incidents/{inc_id}/fixes",
+        json={"description": "Hypothetical fix"},
+    )
+    fix_id = fix_res.json()["data"]["fix_id"]
+
+    # Attempt to verify with exit_code: 0 alone (no command, no details, no event_id)
+    verify_res = await async_client.post(
+        f"/api/v1/fixes/{fix_id}/verify",
+        json={"exit_code": 0},
+    )
+    assert verify_res.status_code == 422
+    assert "insufficient for verification" in verify_res.json()["error"].lower()
+
+
+@pytest.mark.anyio
+async def test_trusted_execution_via_recorded_event_id_and_forgery_block(async_client: AsyncClient, test_db):
+    """Scenario 10: Trusted execution mechanism uses recorded run exit code and prevents caller forgery."""
+    await async_client.post(
+        "/api/v1/projects",
+        json={"project_id": "proj_trusted", "name": "Trusted Test App"},
+    )
+    inc = await async_client.post(
+        "/api/v1/incidents",
+        json={"project_id": "proj_trusted", "error_type": "ErrTrusted", "error_message": "trusted msg"},
+    )
+    inc_id = inc.json()["data"]["incident_id"]
+
+    fix_res = await async_client.post(
+        f"/api/v1/incidents/{inc_id}/fixes",
+        json={"description": "Fix referencing recorded execution"},
+    )
+    fix_id = fix_res.json()["data"]["fix_id"]
+
+    # 1. Ingest a real failed command run in MongoDB
+    test_db.command_runs.insert_one({
+        "event_id": "evt_failed_run_999",
+        "project_id": "proj_trusted",
+        "command": "python -m pytest tests/test_failing.py",
+        "exit_code": 1,  # FAILED in reality!
+        "duration_ms": 150,
+        "stdout": "F",
+        "stderr": "AssertionError: 1 != 2",
+        "timestamp": datetime.now(timezone.utc),
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    # Caller attempts to forge verification by claiming exit_code: 0 for the failed event_id
+    forge_res = await async_client.post(
+        f"/api/v1/fixes/{fix_id}/verify",
+        json={
+            "exit_code": 0,  # Caller falsely claims 0
+            "event_id": "evt_failed_run_999",
+            "details": "Caller falsely claims it passed",
+        },
+    )
+    assert forge_res.status_code == 200
+    forge_data = forge_res.json()["data"]
+    # The server MUST enforce the recorded run's actual exit_code (1) and mark it failed!
+    assert forge_data["status"] == "failed"
+    assert forge_data["verification_exit_code"] == 1
+    assert forge_data["verified_at"] is None
+    assert forge_data["verification_method"] == "recorded_command_run"
+    assert forge_data["verification_source"] == "devmemory_runner"
+
+    # 2. Ingest a real successful command run in MongoDB
+    test_db.command_runs.insert_one({
+        "event_id": "evt_success_run_100",
+        "project_id": "proj_trusted",
+        "command": "python -m pytest tests/test_passing.py",
+        "exit_code": 0,
+        "duration_ms": 80,
+        "stdout": "1 passed",
+        "stderr": "",
+        "timestamp": datetime.now(timezone.utc),
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    # Legitimate verification via trusted event_id
+    success_res = await async_client.post(
+        f"/api/v1/fixes/{fix_id}/verify",
+        json={
+            "exit_code": 0,
+            "event_id": "evt_success_run_100",
+        },
+    )
+    assert success_res.status_code == 200
+    s_data = success_res.json()["data"]
+    assert s_data["status"] == "verified"
+    assert s_data["verification_exit_code"] == 0
+    assert s_data["verified_at"] is not None
+    assert s_data["verification_event_id"] == "evt_success_run_100"
+    assert s_data["verification_method"] == "recorded_command_run"
+    assert s_data["verification_source"] == "devmemory_runner"
+
+
+@pytest.mark.anyio
+async def test_cross_project_verification_blocked(async_client: AsyncClient, test_db):
+    """Scenario 11: Cross-project fix verification and event_id hijacking are forbidden (HTTP 403)."""
+    # Project X and Project Y
+    await async_client.post("/api/v1/projects", json={"project_id": "proj_x", "name": "App X"})
+    await async_client.post("/api/v1/projects", json={"project_id": "proj_y", "name": "App Y"})
+
+    inc_x = await async_client.post(
+        "/api/v1/incidents",
+        json={"project_id": "proj_x", "error_type": "ErrX", "error_message": "x msg"},
+    )
+    inc_x_id = inc_x.json()["data"]["incident_id"]
+
+    fix_x = await async_client.post(
+        f"/api/v1/incidents/{inc_x_id}/fixes",
+        json={"description": "Fix X"},
+    )
+    fix_x_id = fix_x.json()["data"]["fix_id"]
+
+    # 1. User from Project Y tries to verify Project X's fix -> HTTP 403
+    cross_res = await async_client.post(
+        f"/api/v1/fixes/{fix_x_id}/verify?project_id=proj_y",
+        json={"exit_code": 0, "command": "pytest", "details": "passed"},
+    )
+    assert cross_res.status_code == 403
+    assert "access denied" in cross_res.json()["error"].lower()
+
+    # 2. Ingest run in Project Y
+    test_db.command_runs.insert_one({
+        "event_id": "evt_y_run",
+        "project_id": "proj_y",
+        "command": "pytest",
+        "exit_code": 0,
+        "duration_ms": 50,
+        "timestamp": datetime.now(timezone.utc),
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    # Attempt to verify Project X's fix using Project Y's event_id -> HTTP 403
+    hijack_res = await async_client.post(
+        f"/api/v1/fixes/{fix_x_id}/verify",
+        json={"exit_code": 0, "event_id": "evt_y_run"},
+    )
+    assert hijack_res.status_code == 403
+    assert "belongs to project 'proj_y'" in hijack_res.json()["error"].lower()
+
+
+@pytest.mark.anyio
+async def test_tenant_isolation_on_verified_fixes_query(async_client: AsyncClient, test_db):
+    """Scenario 12: Tenant isolation on verified fixes query and endpoints."""
+    await async_client.post("/api/v1/projects", json={"project_id": "proj_p1", "name": "App P1"})
+    inc_p1 = await async_client.post(
+        "/api/v1/incidents",
+        json={"project_id": "proj_p1", "error_type": "ErrP1", "error_message": "p1 msg"},
+    )
+    inc_p1_id = inc_p1.json()["data"]["incident_id"]
+    # Ensure incident is private
+    test_db.incidents.update_one({"incident_id": inc_p1_id}, {"$set": {"is_public": False}})
+
+    fix_p1 = await async_client.post(
+        f"/api/v1/incidents/{inc_p1_id}/fixes",
+        json={"description": "Private P1 Fix"},
+    )
+    fix_p1_id = fix_p1.json()["data"]["fix_id"]
+    await async_client.post(
+        f"/api/v1/fixes/{fix_p1_id}/verify",
+        json={"exit_code": 0, "command": "pytest", "details": "passed"},
+    )
+
+    # 1. Query without project_id does NOT leak private fix
+    unauth_query = await async_client.get("/api/v1/fixes/verified")
+    assert unauth_query.status_code == 200
+    assert len(unauth_query.json()["data"]) == 0
+
+    # 2. Query with nonexistent project returns 404
+    nonexist_query = await async_client.get("/api/v1/fixes/verified?project_id=proj_ghost")
+    assert nonexist_query.status_code == 404
+
+    # 3. Accessing private incident's verified fixes with wrong project_id returns 403
+    other_inc_fixes = await async_client.get(
+        f"/api/v1/incidents/{inc_p1_id}/fixes/verified?project_id=proj_wrong"
+    )
+    assert other_inc_fixes.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_diagnosis_association_validation(async_client: AsyncClient, test_db):
+    """Scenario 13: Validates diagnosis existence and association when creating a fix."""
+    await async_client.post("/api/v1/projects", json={"project_id": "proj_diag_val", "name": "Diag Val App"})
+    inc_1 = await async_client.post(
+        "/api/v1/incidents",
+        json={"project_id": "proj_diag_val", "error_type": "Err1", "error_message": "msg1"},
+    )
+    inc_1_id = inc_1.json()["data"]["incident_id"]
+
+    inc_2 = await async_client.post(
+        "/api/v1/incidents",
+        json={"project_id": "proj_diag_val", "error_type": "Err2", "error_message": "msg2"},
+    )
+    inc_2_id = inc_2.json()["data"]["incident_id"]
+
+    test_db.diagnoses.insert_one({
+        "diagnosis_id": "diag_for_inc_1",
+        "incident_id": inc_1_id,
+        "project_id": "proj_diag_val",
+        "summary": "Diag 1",
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    # 1. Nonexistent diagnosis_id -> HTTP 404
+    nonexist_res = await async_client.post(
+        f"/api/v1/incidents/{inc_1_id}/fixes",
+        json={"diagnosis_id": "diag_ghost", "description": "Fix with ghost diag"},
+    )
+    assert nonexist_res.status_code == 404
+
+    # 2. Mismatched diagnosis_id (belongs to incident 1, attached to incident 2) -> HTTP 400
+    mismatch_res = await async_client.post(
+        f"/api/v1/incidents/{inc_2_id}/fixes",
+        json={"diagnosis_id": "diag_for_inc_1", "description": "Fix with mismatched diag"},
+    )
+    assert mismatch_res.status_code == 400
+    assert "belongs to incident" in mismatch_res.json()["error"].lower()

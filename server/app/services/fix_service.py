@@ -1,7 +1,7 @@
 """Service layer for fix outcome lifecycle tracking and evidence verification."""
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 from fastapi import HTTPException, status
 from pymongo import DESCENDING
@@ -31,8 +31,9 @@ def create_fix(
     db: Database,
     incident_id: str,
     payload: FixOutcomeCreate,
+    project_id: Optional[str] = None,
 ) -> FixOutcomeResponse:
-    """Register a proposed fix for an existing incident."""
+    """Register a proposed fix for an existing incident with resource validation."""
     incident = db.incidents.find_one({"incident_id": incident_id})
     if not incident:
         raise HTTPException(
@@ -40,23 +41,39 @@ def create_fix(
             detail=f"Incident with ID '{incident_id}' not found.",
         )
 
-    # If diagnosis_id is provided and exists in db.diagnoses, verify it matches incident_id
+    actual_project_id = incident["project_id"]
+    if project_id and project_id != actual_project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied: Cannot create fix for incident belonging to project '{actual_project_id}' with project context '{project_id}'.",
+        )
+
+    # If diagnosis_id is provided, validate diagnosis existence and association
     if payload.diagnosis_id:
         diag = db.diagnoses.find_one({"diagnosis_id": payload.diagnosis_id})
-        if diag and diag.get("incident_id") != incident_id:
+        if not diag:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Diagnosis with ID '{payload.diagnosis_id}' not found.",
+            )
+        if diag.get("incident_id") != incident_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Diagnosis '{payload.diagnosis_id}' belongs to incident '{diag.get('incident_id')}', not '{incident_id}'.",
             )
+        if diag.get("project_id") != actual_project_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Diagnosis '{payload.diagnosis_id}' belongs to project '{diag.get('project_id')}', not '{actual_project_id}'.",
+            )
 
-    project_id = incident["project_id"]
     fix_id = payload.fix_id or f"fix_{uuid4().hex[:12]}"
     now = datetime.now(timezone.utc)
 
     doc = {
         "fix_id": fix_id,
         "incident_id": incident_id,
-        "project_id": project_id,
+        "project_id": actual_project_id,
         "diagnosis_id": payload.diagnosis_id,
         "description": payload.description,
         "status": "proposed",
@@ -65,6 +82,7 @@ def create_fix(
         "verification_exit_code": None,
         "verification_details": None,
         "verification_source": None,
+        "verification_event_id": None,
         "verified_at": None,
         "created_at": now,
         "updated_at": now,
@@ -86,11 +104,24 @@ def create_fix(
     return FixOutcomeResponse(**doc)
 
 
-def get_fix(db: Database, fix_id: str) -> Optional[FixOutcomeResponse]:
-    """Retrieve a single fix outcome record by its ID."""
+def get_fix(
+    db: Database,
+    fix_id: str,
+    project_id: Optional[str] = None,
+) -> Optional[FixOutcomeResponse]:
+    """Retrieve a single fix outcome record by its ID with tenant isolation check."""
     doc = db.fix_outcomes.find_one({"fix_id": fix_id}, {"_id": 0})
     if not doc:
         return None
+
+    if project_id and doc.get("project_id") != project_id:
+        incident = db.incidents.find_one({"incident_id": doc.get("incident_id")})
+        if not (incident and incident.get("is_public", False)):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied: Fix '{fix_id}' belongs to project '{doc.get('project_id')}', not '{project_id}'.",
+            )
+
     return FixOutcomeResponse(**doc)
 
 
@@ -98,6 +129,7 @@ def update_fix(
     db: Database,
     fix_id: str,
     payload: FixOutcomeUpdate,
+    project_id: Optional[str] = None,
 ) -> FixOutcomeResponse:
     """Update fix outcome status and verification metadata adhering to evidence validation rules."""
     existing = db.fix_outcomes.find_one({"fix_id": fix_id})
@@ -106,6 +138,43 @@ def update_fix(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Fix with ID '{fix_id}' not found.",
         )
+
+    if project_id and existing.get("project_id") != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied: Cannot update fix belonging to project '{existing.get('project_id')}' with project context '{project_id}'.",
+        )
+
+    if payload.diagnosis_id is not None:
+        diag = db.diagnoses.find_one({"diagnosis_id": payload.diagnosis_id})
+        if not diag:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Diagnosis with ID '{payload.diagnosis_id}' not found.",
+            )
+        if diag.get("incident_id") != existing.get("incident_id"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Diagnosis '{payload.diagnosis_id}' belongs to incident '{diag.get('incident_id')}', not '{existing.get('incident_id')}'.",
+            )
+        if diag.get("project_id") != existing.get("project_id"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Diagnosis '{payload.diagnosis_id}' belongs to project '{diag.get('project_id')}', not '{existing.get('project_id')}'.",
+            )
+
+    if payload.verification_event_id is not None:
+        run = db.command_runs.find_one({"event_id": payload.verification_event_id})
+        if not run:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Command run with event_id '{payload.verification_event_id}' not found.",
+            )
+        if run.get("project_id") != existing.get("project_id"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Command run belongs to project '{run.get('project_id')}', but fix belongs to project '{existing.get('project_id')}'.",
+            )
 
     current_status = existing["status"]
     target_status = payload.status or current_status
@@ -123,9 +192,6 @@ def update_fix(
             )
 
     # 2. Strict Verification Evidence Rule:
-    # A fix may only be marked 'verified' if supported by concrete recorded evidence:
-    # Option A: Command-based verification (command executed and exit_code == 0)
-    # Option B: Explicit user confirmation with recorded confirmation details
     verified_at = existing.get("verified_at")
     if target_status == "verified":
         cmd = payload.verification_command or existing.get("verification_command")
@@ -173,7 +239,7 @@ def update_fix(
         verified_at = None
 
     now = datetime.now(timezone.utc)
-    update_fields = {"updated_at": now}
+    update_fields: Dict[str, Any] = {"updated_at": now}
 
     if payload.status is not None:
         update_fields["status"] = target_status
@@ -191,6 +257,8 @@ def update_fix(
         update_fields["verification_details"] = payload.verification_details
     if payload.verification_source is not None:
         update_fields["verification_source"] = payload.verification_source
+    if payload.verification_event_id is not None:
+        update_fields["verification_event_id"] = payload.verification_event_id
 
     update_fields["verified_at"] = verified_at
 
@@ -205,14 +273,22 @@ def list_incident_fixes(
     incident_id: str,
     limit: int = 50,
     skip: int = 0,
+    project_id: Optional[str] = None,
 ) -> PaginatedResponse[FixOutcomeResponse]:
-    """Retrieve paginated fixes for a specific incident sorted newest first."""
+    """Retrieve paginated fixes for a specific incident sorted newest first with tenant isolation check."""
     incident = db.incidents.find_one({"incident_id": incident_id})
     if not incident:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Incident with ID '{incident_id}' not found.",
         )
+
+    if project_id and incident.get("project_id") != project_id:
+        if not incident.get("is_public", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied: Incident '{incident_id}' belongs to project '{incident.get('project_id')}', not '{project_id}'.",
+            )
 
     limit = max(1, min(limit, 100))
     skip = max(0, skip)
@@ -239,13 +315,19 @@ def record_fix_verification(
     db: Database,
     fix_id: str,
     payload: FixVerificationRecordRequest,
+    project_id: Optional[str] = None,
 ) -> FixOutcomeResponse:
     """Record execution results for an automated or manual fix verification command.
 
-    If exit_code == 0:
-        Transitions the fix to 'verified' with timestamp and evidence.
-    If exit_code != 0:
-        Transitions the fix to 'failed', clears verified_at, and records error details.
+    Security & Integrity Guarantees:
+    1. Tenant Isolation: If project_id is provided, enforces that the caller has access to the fix's project.
+    2. Trusted Execution Verification: If payload.event_id is provided, resolves the trusted command_runs
+       record from the database, validates project association, and uses the recorded exit_code (preventing forged claims).
+    3. Caller Attestation Guard: Caller-supplied exit_code 0 alone (without event_id, command, or details)
+       is rejected with HTTP 422. Manual or CI attestation without a recorded event_id is labeled
+       'caller_attestation' or 'user_confirmation', never falsely masquerading as an internal platform runner.
+    4. State Consistency: exit_code == 0 marks status='verified' with timestamp; non-zero marks status='failed'
+       and resets verified_at to None.
     """
     existing = db.fix_outcomes.find_one({"fix_id": fix_id})
     if not existing:
@@ -254,8 +336,80 @@ def record_fix_verification(
             detail=f"Fix with ID '{fix_id}' not found.",
         )
 
+    # 1. Enforce tenant isolation
+    if project_id and existing.get("project_id") != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied: Cannot verify fix belonging to project '{existing.get('project_id')}' with project context '{project_id}'.",
+        )
+
+    # 2. Validate incident association
+    incident = db.incidents.find_one({"incident_id": existing.get("incident_id")})
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Associated incident '{existing.get('incident_id')}' not found.",
+        )
+
     now = datetime.now(timezone.utc)
-    if payload.exit_code == 0:
+    event_id = payload.event_id
+
+    # 3. Trusted execution mechanism vs Caller attestation
+    if event_id:
+        run = db.command_runs.find_one({"event_id": event_id})
+        if not run:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Command run with event_id '{event_id}' not found in execution history.",
+            )
+        # Validate that the run belongs to the same project as the fix
+        if run.get("project_id") != existing.get("project_id"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Command run belongs to project '{run.get('project_id')}', but fix belongs to project '{existing.get('project_id')}'.",
+            )
+        # Use trusted actual execution result from database (prevents caller from forging exit_code 0)
+        actual_exit_code = run.get("exit_code", payload.exit_code)
+        cmd = run.get("command", payload.command or "")
+        details = payload.details or run.get("stdout") or run.get("stderr") or f"Recorded run '{cmd}' exited with code {actual_exit_code}."
+        method = "recorded_command_run"
+        source = "devmemory_runner"
+    else:
+        # Caller attestation path
+        cmd = (payload.command or "").strip()
+        details = (payload.details or "").strip()
+        source_in = (payload.source or "").strip().lower()
+
+        # Caller-supplied exit_code 0 alone must not be treated as independently verified proof
+        if payload.exit_code == 0:
+            if not cmd and not details:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Caller-supplied exit_code 0 alone is insufficient for verification. "
+                        "Provide verifiable execution details/command or reference a recorded event_id."
+                    ),
+                )
+            if source_in in ("user_confirmation", "manual", "developer_attestation"):
+                method = "user_confirmation"
+                source = payload.source or "user_confirmation"
+            else:
+                method = "caller_attestation"
+                # Prevent caller from falsely claiming internal runner without an event_id
+                if source_in in ("devmemory_runner", "recorded_command_run"):
+                    source = "attested_execution"
+                else:
+                    source = payload.source or "caller_attestation"
+        else:
+            method = "caller_attestation"
+            source = payload.source or "caller_attestation"
+
+        actual_exit_code = payload.exit_code
+        cmd = payload.command
+        details = payload.details
+
+    # 4. State transition and timestamp consistency
+    if actual_exit_code == 0:
         new_status = "verified"
         verified_at = now
     else:
@@ -264,11 +418,12 @@ def record_fix_verification(
 
     update_fields = {
         "status": new_status,
-        "verification_method": "command",
-        "verification_command": payload.command,
-        "verification_exit_code": payload.exit_code,
-        "verification_details": payload.details,
-        "verification_source": payload.source or "automated_command",
+        "verification_method": method,
+        "verification_command": cmd,
+        "verification_exit_code": actual_exit_code,
+        "verification_details": details,
+        "verification_source": source,
+        "verification_event_id": event_id,
         "verified_at": verified_at,
         "updated_at": now,
     }
@@ -281,8 +436,9 @@ def record_fix_verification(
 def get_verified_fixes_for_incident(
     db: Database,
     incident_id: str,
+    project_id: Optional[str] = None,
 ) -> List[FixOutcomeResponse]:
-    """Retrieve all verified fixes for a specific incident."""
+    """Retrieve all verified fixes for a specific incident with tenant isolation checks."""
     incident = db.incidents.find_one({"incident_id": incident_id})
     if not incident:
         raise HTTPException(
@@ -290,9 +446,21 @@ def get_verified_fixes_for_incident(
             detail=f"Incident with ID '{incident_id}' not found.",
         )
 
+    # Tenant isolation validation: if caller provides project context, check access
+    if project_id and incident.get("project_id") != project_id:
+        if not incident.get("is_public", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied: Incident '{incident_id}' belongs to project '{incident.get('project_id')}', not '{project_id}'.",
+            )
+
     cursor = (
         db.fix_outcomes.find(
-            {"incident_id": incident_id, "status": "verified"},
+            {
+                "incident_id": incident_id,
+                "status": "verified",
+                "verified_at": {"$ne": None},
+            },
             {"_id": 0},
         )
         .sort([("verified_at", DESCENDING), ("created_at", DESCENDING)])
@@ -304,37 +472,64 @@ def query_verified_fixes(
     db: Database,
     error_signature: Optional[str] = None,
     project_id: Optional[str] = None,
+    allow_cross_project: bool = False,
+    has_cross_project_read: bool = False,
     limit: int = 20,
 ) -> List[FixOutcomeResponse]:
-    """Query verified fixes across incidents for recommendation and learning.
+    """Query verified fixes across incidents for recommendation and learning with tenant isolation.
 
-    Filters by error_signature and/or project_id, ensuring only verified fixes (status='verified')
-    are returned.
+    Guarantees:
+    1. If project_id is provided, validates that the project exists.
+    2. Without cross-project authorization, returns ONLY verified fixes belonging to that project_id.
+    3. If cross-project read is authorized, includes other projects' fixes ONLY if their incidents are marked is_public=True.
+    4. If project_id is omitted, strictly restricts retrieval to incidents marked is_public=True (never leaking private tenant fixes).
+    5. Excludes any unverified, failed, or revoked fixes (status must be 'verified' and verified_at not None).
     """
     limit = max(1, min(limit, 100))
 
-    if error_signature:
-        inc_filter = {"error_signature": error_signature}
-        if project_id:
-            inc_filter["project_id"] = project_id
+    if project_id:
+        proj = db.projects.find_one({"project_id": project_id})
+        if not proj:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Project with ID '{project_id}' not found.",
+            )
+
+        if allow_cross_project and has_cross_project_read:
+            inc_filter: Dict[str, Any] = {
+                "$or": [{"project_id": project_id}, {"is_public": True}]
+            }
+        else:
+            inc_filter = {"project_id": project_id}
+
+        if error_signature:
+            inc_filter["error_signature"] = error_signature
+
         incidents = list(db.incidents.find(inc_filter, {"incident_id": 1, "_id": 0}))
         incident_ids = [inc["incident_id"] for inc in incidents]
         if not incident_ids:
             return []
-        fix_filter = {
+
+        fix_filter: Dict[str, Any] = {
             "incident_id": {"$in": incident_ids},
             "status": "verified",
-        }
-        if project_id:
-            fix_filter["project_id"] = project_id
-    elif project_id:
-        fix_filter = {
-            "project_id": project_id,
-            "status": "verified",
+            "verified_at": {"$ne": None},
         }
     else:
+        # Cross-project query without tenant context: strictly restricted to public incidents
+        inc_filter = {"is_public": True}
+        if error_signature:
+            inc_filter["error_signature"] = error_signature
+
+        public_incidents = list(db.incidents.find(inc_filter, {"incident_id": 1, "_id": 0}))
+        public_inc_ids = [inc["incident_id"] for inc in public_incidents]
+        if not public_inc_ids:
+            return []
+
         fix_filter = {
+            "incident_id": {"$in": public_inc_ids},
             "status": "verified",
+            "verified_at": {"$ne": None},
         }
 
     cursor = (

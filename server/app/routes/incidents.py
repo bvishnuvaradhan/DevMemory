@@ -203,9 +203,10 @@ async def list_diagnoses_endpoint(
 async def create_fix_endpoint(
     incident_id: str,
     payload: FixOutcomeCreate,
+    project_id: Optional[str] = Query(default=None, description="Project context of the requester"),
     db: Database = Depends(get_database),
 ):
-    fix = fix_service.create_fix(db, incident_id=incident_id, payload=payload)
+    fix = fix_service.create_fix(db, incident_id=incident_id, payload=payload, project_id=project_id)
     return ResponseEnvelope[FixOutcomeResponse](success=True, data=fix, error=None)
 
 
@@ -218,10 +219,11 @@ async def list_fixes_endpoint(
     incident_id: str,
     limit: int = Query(default=50, ge=1, le=100),
     skip: int = Query(default=0, ge=0),
+    project_id: Optional[str] = Query(default=None, description="Project context of the requester"),
     db: Database = Depends(get_database),
 ):
     fixes = fix_service.list_incident_fixes(
-        db, incident_id=incident_id, limit=limit, skip=skip
+        db, incident_id=incident_id, limit=limit, skip=skip, project_id=project_id
     )
     return ResponseEnvelope[PaginatedResponse[FixOutcomeResponse]](
         success=True, data=fixes, error=None
@@ -235,9 +237,10 @@ async def list_fixes_endpoint(
 )
 async def get_verified_incident_fixes_endpoint(
     incident_id: str,
+    project_id: Optional[str] = Query(default=None, description="Project context of the requester"),
     db: Database = Depends(get_database),
 ):
-    fixes = fix_service.get_verified_fixes_for_incident(db, incident_id=incident_id)
+    fixes = fix_service.get_verified_fixes_for_incident(db, incident_id=incident_id, project_id=project_id)
     return ResponseEnvelope[List[FixOutcomeResponse]](success=True, data=fixes, error=None)
 
 

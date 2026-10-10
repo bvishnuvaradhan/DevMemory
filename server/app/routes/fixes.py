@@ -24,6 +24,8 @@ router = APIRouter(prefix="/fixes", tags=["Fix Outcomes"])
 async def query_verified_fixes_endpoint(
     error_signature: Optional[str] = Query(default=None, description="Filter by error signature"),
     project_id: Optional[str] = Query(default=None, description="Filter by project ID"),
+    allow_cross_project: bool = Query(default=False, description="Allow searching public cross-project precedents"),
+    has_cross_project_read: bool = Query(default=False, description="Server permission for cross-project read"),
     limit: int = Query(default=20, ge=1, le=100, description="Maximum number of verified fixes to return"),
     db: Database = Depends(get_database),
 ):
@@ -31,6 +33,8 @@ async def query_verified_fixes_endpoint(
         db,
         error_signature=error_signature,
         project_id=project_id,
+        allow_cross_project=allow_cross_project,
+        has_cross_project_read=has_cross_project_read,
         limit=limit,
     )
     return ResponseEnvelope[List[FixOutcomeResponse]](success=True, data=fixes, error=None)
@@ -43,9 +47,10 @@ async def query_verified_fixes_endpoint(
 )
 async def get_fix_endpoint(
     fix_id: str,
+    project_id: Optional[str] = Query(default=None, description="Project context of the requester"),
     db: Database = Depends(get_database),
 ):
-    fix = fix_service.get_fix(db, fix_id)
+    fix = fix_service.get_fix(db, fix_id, project_id=project_id)
     if not fix:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -62,9 +67,10 @@ async def get_fix_endpoint(
 async def update_fix_endpoint(
     fix_id: str,
     payload: FixOutcomeUpdate,
+    project_id: Optional[str] = Query(default=None, description="Project context of the requester"),
     db: Database = Depends(get_database),
 ):
-    updated = fix_service.update_fix(db, fix_id=fix_id, payload=payload)
+    updated = fix_service.update_fix(db, fix_id=fix_id, payload=payload, project_id=project_id)
     return ResponseEnvelope[FixOutcomeResponse](success=True, data=updated, error=None)
 
 
@@ -76,7 +82,8 @@ async def update_fix_endpoint(
 async def record_fix_verification_endpoint(
     fix_id: str,
     payload: FixVerificationRecordRequest,
+    project_id: Optional[str] = Query(default=None, description="Project context of the requester"),
     db: Database = Depends(get_database),
 ):
-    updated = fix_service.record_fix_verification(db, fix_id=fix_id, payload=payload)
+    updated = fix_service.record_fix_verification(db, fix_id=fix_id, payload=payload, project_id=project_id)
     return ResponseEnvelope[FixOutcomeResponse](success=True, data=updated, error=None)

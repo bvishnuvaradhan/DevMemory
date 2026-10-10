@@ -35,6 +35,11 @@ class FixVerificationRecordRequest(BaseModel):
         ...,
         description="Exit code of the verification command (0 indicates success)",
     )
+    event_id: Optional[str] = Field(
+        default=None,
+        max_length=128,
+        description="Optional recorded command run event ID for trusted execution verification",
+    )
     command: Optional[str] = Field(
         default=None,
         max_length=2000,
@@ -93,6 +98,11 @@ class FixOutcomeUpdate(BaseModel):
         max_length=100,
         description="Source of verification ('automated_command', 'test_runner', 'user_confirmation')",
     )
+    verification_event_id: Optional[str] = Field(
+        default=None,
+        max_length=128,
+        description="Optional link to recorded command run event ID",
+    )
 
 
 class FixOutcomeResponse(BaseModel):
@@ -109,6 +119,7 @@ class FixOutcomeResponse(BaseModel):
     verification_exit_code: Optional[int] = None
     verification_details: Optional[str] = None
     verification_source: Optional[str] = None
+    verification_event_id: Optional[str] = None
     verified_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

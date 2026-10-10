@@ -64,13 +64,16 @@ class MongoIncidentRepository:
 
         # Enrich fix outcome and verification status if present
         verified_fix = self.db.fix_outcomes.find_one(
-            {"incident_id": inc_id, "status": "verified"},
+            {
+                "incident_id": inc_id,
+                "status": "verified",
+                "verified_at": {"$ne": None},
+            },
             sort=[("verified_at", -1), ("created_at", -1)],
         )
         if verified_fix:
             enriched["verification_status"] = "verified"
-            if not enriched.get("resolution_summary"):
-                enriched["resolution_summary"] = verified_fix.get("description")
+            enriched["resolution_summary"] = verified_fix.get("description")
         else:
             latest_fix = self.db.fix_outcomes.find_one(
                 {"incident_id": inc_id},

@@ -83,6 +83,7 @@ FIX_OUTCOMES_VALIDATOR = {
             "incident_id": {"bsonType": "string"},
             "project_id": {"bsonType": "string"},
             "diagnosis_id": {"bsonType": ["string", "null"]},
+            "verification_event_id": {"bsonType": ["string", "null"]},
             "description": {"bsonType": "string"},
             "status": {
                 "enum": ["proposed", "applied", "verifying", "verified", "failed", "reverted"]
@@ -254,6 +255,11 @@ def init_indexes(db: Database) -> None:
         db.fix_outcomes.create_index(
             [("diagnosis_id", ASCENDING)],
             name="idx_fixes_diagnosis_id",
+            sparse=True,
+        )
+        db.fix_outcomes.create_index(
+            [("verification_event_id", ASCENDING)],
+            name="idx_fixes_event_id",
             sparse=True,
         )
     except Exception as exc:
