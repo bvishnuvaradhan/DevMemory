@@ -89,7 +89,20 @@ class Settings(BaseSettings):
         description="Minimum number of successful observations required to calculate a baseline",
     )
 
-    # OpenAI & Embedding Provider Configuration
+    # Voyage AI & Embedding Provider Configuration
+    VOYAGE_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Voyage AI API key for dense embedding generation",
+    )
+    VOYAGE_EMBEDDING_MODEL: str = Field(
+        default="voyage-code-4",
+        description="Voyage AI embedding model identifier",
+    )
+    VOYAGE_EMBEDDINGS_URL: str = Field(
+        default="https://api.voyageai.com/v1/embeddings",
+        description="Voyage AI API endpoint for embeddings",
+    )
+    # OpenAI & Alternative Embedding Provider Configuration
     OPENAI_API_KEY: Optional[str] = Field(
         default=None,
         description="OpenAI API key for dense embedding generation",
@@ -99,12 +112,12 @@ class Settings(BaseSettings):
         description="OpenAI embedding model identifier",
     )
     DEVMEMORY_EMBEDDING_PROVIDER: Optional[str] = Field(
-        default=None,
-        description="Configured embedding provider: auto, dense, or deterministic",
+        default="voyage",
+        description="Configured embedding provider: voyage, auto, dense, or deterministic",
     )
     DEVMEMORY_VECTOR_DIMENSION: Optional[int] = Field(
         default=None,
-        description="Configured vector dimension (1536 for text-embedding-3-small, 128 for deterministic)",
+        description="Configured vector dimension (1024 for voyage-code-4, 1536 for text-embedding-3-small, 128 for deterministic)",
     )
     MONGODB_VECTOR_FIELD: str = Field(
         default="embedding",
@@ -119,6 +132,12 @@ class Settings(BaseSettings):
             os.environ["GROQ_MODEL"] = self.GROQ_MODEL
         if self.GROQ_TIMEOUT_SECONDS and not os.getenv("GROQ_TIMEOUT_SECONDS"):
             os.environ["GROQ_TIMEOUT_SECONDS"] = str(self.GROQ_TIMEOUT_SECONDS)
+        if self.VOYAGE_API_KEY and not os.getenv("VOYAGE_API_KEY"):
+            os.environ["VOYAGE_API_KEY"] = self.VOYAGE_API_KEY
+        if self.VOYAGE_EMBEDDING_MODEL and not os.getenv("VOYAGE_EMBEDDING_MODEL"):
+            os.environ["VOYAGE_EMBEDDING_MODEL"] = self.VOYAGE_EMBEDDING_MODEL
+        if self.VOYAGE_EMBEDDINGS_URL and not os.getenv("VOYAGE_EMBEDDINGS_URL"):
+            os.environ["VOYAGE_EMBEDDINGS_URL"] = self.VOYAGE_EMBEDDINGS_URL
         if self.OPENAI_API_KEY and not os.getenv("OPENAI_API_KEY"):
             os.environ["OPENAI_API_KEY"] = self.OPENAI_API_KEY
         if self.OPENAI_EMBEDDING_MODEL and not os.getenv("OPENAI_EMBEDDING_MODEL"):
