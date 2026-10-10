@@ -279,20 +279,46 @@ def get_global_overview(db: Database) -> dict:
         "isMock": False,
     }
 
-    # Fetch projects with counts
-    projects_cursor = db.projects.find({}, {"_id": 0}).limit(50)
+    # 1. Batch aggregate command_runs per project in a single query
+    run_stats_pipe = [
+        {
+            "$group": {
+                "_id": "$project_id",
+                "total_runs": {"$sum": 1},
+                "failures": {"$sum": {"$cond": [{"$ne": ["$exit_code", 0]}, 1, 0]}},
+                "last_run_at": {"$max": "$started_at"},
+                "durations": {"$push": "$duration_ms"},
+            }
+        }
+    ]
+    run_stats = {r["_id"]: r for r in db.command_runs.aggregate(run_stats_pipe)}
+
+    # 2. Batch aggregate verified fixes per project in a single query
+    fix_stats_pipe = [
+        {"$match": {"status": "verified"}},
+        {"$group": {"_id": "$project_id", "verified_fixes": {"$sum": 1}}},
+    ]
+    fix_stats = {r["_id"]: r["verified_fixes"] for r in db.fix_outcomes.aggregate(fix_stats_pipe)}
+
+    # 3. Retrieve projects sorted newest first
+    projects_cursor = db.projects.find({}, {"_id": 0}).sort("created_at", DESCENDING).limit(50)
     projects = []
     for p in projects_cursor:
         pid = p.get("project_id")
-        p_runs = db.command_runs.count_documents({"project_id": pid})
-        p_fails = db.command_runs.count_documents({"project_id": pid, "exit_code": {"$ne": 0}})
-        p_fixes = db.fix_outcomes.count_documents({"project_id": pid, "status": "verified"})
-        last_run = db.command_runs.find_one({"project_id": pid}, sort=[("started_at", -1)])
-        last_ts = (
-            last_run["started_at"].isoformat()
-            if last_run and last_run.get("started_at")
+        r_stat = run_stats.get(pid, {})
+        durs = [d for d in r_stat.get("durations", []) if d is not None]
+        durs.sort()
+        proj_median = durs[len(durs) // 2] if durs else 0
+        last_ts = r_stat.get("last_run_at")
+        last_ts_iso = (
+            last_ts.isoformat()
+            if hasattr(last_ts, "isoformat")
+            else str(last_ts)
+            if last_ts
             else None
         )
+        total_p_runs = r_stat.get("total_runs", 0)
+        p_fails = r_stat.get("failures", 0)
         p_doc = {
             "id": pid,
             "project_id": pid,
@@ -301,12 +327,16 @@ def get_global_overview(db: Database) -> dict:
             "language": p.get("language", ""),
             "framework": p.get("framework", ""),
             "repository": p.get("repository", ""),
-            "totalRuns": p_runs,
+            "totalRuns": total_p_runs,
             "failureCount": p_fails,
-            "verifiedFixCount": p_fixes,
-            "lastRunAt": last_ts,
-            "lastRunStatus": last_run.get("status", "unknown") if last_run else "unknown",
-            "medianDurationMs": 0,
+            "verifiedFixCount": fix_stats.get(pid, 0),
+            "lastRunAt": last_ts_iso,
+            "lastRunStatus": (
+                "failure"
+                if p_fails > 0
+                else ("success" if total_p_runs > 0 else "unknown")
+            ),
+            "medianDurationMs": proj_median,
         }
         projects.append(p_doc)
 
@@ -343,6 +373,18 @@ def get_global_overview(db: Database) -> dict:
     performance_trend.reverse()
 
     # Recurring error clusters
+    verified_incident_ids = db.fix_outcomes.distinct("incident_id", {"status": "verified"})
+    verified_sigs = (
+        set(
+            db.incidents.distinct(
+                "error_signature",
+                {"incident_id": {"$in": verified_incident_ids}},
+            )
+        )
+        if verified_incident_ids
+        else set()
+    )
+
     rec_list_pipe = [
         {"$match": {"error_signature": {"$exists": True, "$ne": None, "$ne": ""}}},
         {
@@ -351,8 +393,9 @@ def get_global_overview(db: Database) -> dict:
                 "count": {"$sum": 1},
                 "error_type": {"$first": "$error_type"},
                 "error_message": {"$first": "$error_message"},
-                "project_id": {"$first": "$project_id"},
+                "affected_projects": {"$addToSet": "$project_id"},
                 "latest_occurrence": {"$max": "$created_at"},
+                "first_seen": {"$min": "$created_at"},
             }
         },
         {"$sort": {"count": -1, "latest_occurrence": -1}},
@@ -360,16 +403,37 @@ def get_global_overview(db: Database) -> dict:
     ]
     recurring_errors = []
     for r in db.incidents.aggregate(rec_list_pipe):
+        sig = r["_id"]
         latest = r.get("latest_occurrence")
         latest_iso = latest.isoformat() if hasattr(latest, "isoformat") else str(latest) if latest else None
+        first = r.get("first_seen")
+        first_iso = first.isoformat() if hasattr(first, "isoformat") else str(first) if first else None
+        aff_projs = [p for p in r.get("affected_projects", []) if p]
+        has_fix = sig in verified_sigs
+        err_msg = r.get("error_message") or ""
+        err_type = r.get("error_type") or "Error"
+
         recurring_errors.append({
-            "errorSignature": r["_id"],
-            "errorType": r.get("error_type"),
-            "errorMessage": r.get("error_message"),
-            "projectId": r.get("project_id"),
-            "count": r.get("count"),
+            "errorSignature": sig,
+            "error_signature": sig,
+            "errorType": err_type,
+            "error_type": err_type,
+            "category": "Runtime Failure",
+            "sampleMessage": err_msg,
+            "error_message": err_msg,
+            "errorMessage": err_msg,
+            "occurrences": r.get("count", 1),
+            "occurrence_count": r.get("count", 1),
+            "count": r.get("count", 1),
+            "affectedProjects": aff_projs if aff_projs else ["default"],
+            "affected_projects": aff_projs,
+            "hasVerifiedFix": has_fix,
+            "has_verified_fix": has_fix,
             "latestOccurrence": latest_iso,
+            "latest_occurrence": latest_iso,
+            "firstSeen": first_iso,
         })
+
 
     # Verified fixes
     fixes_cursor = (

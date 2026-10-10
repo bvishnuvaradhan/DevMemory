@@ -22,7 +22,7 @@ router = APIRouter(prefix="/projects", tags=["Projects"])
     status_code=status.HTTP_201_CREATED,
     summary="Register a new project",
 )
-async def create_project_endpoint(
+def create_project_endpoint(
     payload: ProjectCreate,
     db: Database = Depends(get_database),
 ):
@@ -35,7 +35,7 @@ async def create_project_endpoint(
     response_model=ResponseEnvelope[PaginatedResponse[ProjectResponse]],
     summary="List registered projects",
 )
-async def list_projects_endpoint(
+def list_projects_endpoint(
     limit: int = Query(default=50, ge=1, le=100),
     skip: int = Query(default=0, ge=0),
     db: Database = Depends(get_database),
@@ -49,7 +49,7 @@ async def list_projects_endpoint(
     response_model=ResponseEnvelope[ProjectResponse],
     summary="Get project details by ID",
 )
-async def get_project_endpoint(
+def get_project_endpoint(
     project_id: str,
     db: Database = Depends(get_database),
 ):
@@ -67,7 +67,7 @@ async def get_project_endpoint(
     response_model=ResponseEnvelope[PaginatedResponse[RunResponse]],
     summary="List runs for a specific project",
 )
-async def list_project_runs_endpoint(
+def list_project_runs_endpoint(
     project_id: str,
     limit: int = Query(default=50, ge=1, le=100),
     skip: int = Query(default=0, ge=0),
@@ -85,7 +85,7 @@ async def list_project_runs_endpoint(
     response_model=ResponseEnvelope[PaginatedResponse[IncidentResponse]],
     summary="List incidents for a specific project",
 )
-async def list_project_incidents_endpoint(
+def list_project_incidents_endpoint(
     project_id: str,
     limit: int = Query(default=50, ge=1, le=100),
     skip: int = Query(default=0, ge=0),
@@ -102,7 +102,7 @@ async def list_project_incidents_endpoint(
     response_model=ResponseEnvelope[RecurringErrorsResponse],
     summary="Aggregate and rank recurring errors for a project",
 )
-async def get_recurring_errors_endpoint(
+def get_recurring_errors_endpoint(
     project_id: str,
     limit: int = Query(default=10, ge=1, le=50, description="Max number of recurring error groups"),
     db: Database = Depends(get_database),
@@ -116,7 +116,7 @@ async def get_recurring_errors_endpoint(
     response_model=ResponseEnvelope[ProjectAnalyticsResponse],
     summary="Get summary metrics and health overview for a project",
 )
-async def get_project_analytics_endpoint(
+def get_project_analytics_endpoint(
     project_id: str,
     db: Database = Depends(get_database),
 ):

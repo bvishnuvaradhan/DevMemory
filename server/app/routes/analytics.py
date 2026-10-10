@@ -16,7 +16,7 @@ router = APIRouter(tags=["Analytics & Events"])
     response_model=ResponseEnvelope[Dict[str, Any]],
     summary="Get platform-wide aggregated telemetry and health overview",
 )
-async def get_platform_overview_endpoint(
+def get_platform_overview_endpoint(
     db: Database = Depends(get_database),
 ):
     overview = analytics_service.get_global_overview(db)
@@ -28,7 +28,7 @@ async def get_platform_overview_endpoint(
     response_model=ResponseEnvelope[Dict[str, Any]],
     summary="Get platform-wide performance trend and project distributions",
 )
-async def get_performance_overview_endpoint(
+def get_performance_overview_endpoint(
     db: Database = Depends(get_database),
 ):
     overview = analytics_service.get_global_overview(db)
@@ -44,7 +44,7 @@ async def get_performance_overview_endpoint(
     response_model=ResponseEnvelope[List[Dict[str, Any]]],
     summary="List chronologically sorted global audit events",
 )
-async def list_global_events_endpoint(
+def list_global_events_endpoint(
     limit: int = Query(default=50, ge=1, le=100),
     skip: int = Query(default=0, ge=0),
     db: Database = Depends(get_database),
@@ -58,7 +58,7 @@ async def list_global_events_endpoint(
     response_model=ResponseEnvelope[List[Dict[str, Any]]],
     summary="List chronologically sorted audit events for a project",
 )
-async def list_project_events_endpoint(
+def list_project_events_endpoint(
     project_id: str,
     limit: int = Query(default=50, ge=1, le=100),
     skip: int = Query(default=0, ge=0),

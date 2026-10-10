@@ -252,8 +252,10 @@ def init_indexes(db: Database) -> None:
     # 2. Projects indexes
     try:
         db.projects.create_index("project_id", unique=True, name="idx_projects_project_id_unique")
+        db.projects.create_index([("created_at", DESCENDING)], name="idx_projects_created_at")
     except Exception as exc:
         logger.warning("Index error on projects: %s", exc)
+
 
     # 3. Command runs indexes
     try:

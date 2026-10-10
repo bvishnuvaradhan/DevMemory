@@ -33,9 +33,11 @@ async function safeApiFetch(endpoint, options = {}) {
     return { ok: false, data: null, status: null, isMock: true };
   }
 
+  const timeoutMs = options.timeoutMs || 8000;
+
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const res = await fetch(`${BASE_URL}${endpoint}`, {
       ...options,
@@ -66,7 +68,7 @@ async function safeApiFetch(endpoint, options = {}) {
     const data = await res.json();
     return { ok: true, data, status: res.status, isMock: false };
   } catch (err) {
-    const reason = err.name === 'AbortError' ? 'Request timed out after 4.0s' : err.message;
+    const reason = err.name === 'AbortError' ? `Request timed out after ${timeoutMs / 1000}s` : err.message;
     console.warn(`[DevMemory API] Network request to ${endpoint} failed (${reason}).`);
     isBackendLive = false;
     return { ok: false, data: null, status: null, isMock: true, error: reason };
@@ -221,6 +223,44 @@ export function normalizeEvent(evt) {
   };
 }
 
+export function normalizeRecurringError(err) {
+  if (!err) return err;
+  const rawProjects = err.affectedProjects ?? err.affected_projects;
+  const affectedProjects = Array.isArray(rawProjects)
+    ? rawProjects
+    : (err.projectId || err.project_id ? [err.projectId || err.project_id] : []);
+
+  return {
+    ...err,
+    clusterId: err.clusterId || err.cluster_id || '',
+    errorType: err.errorType || err.error_type || 'UnknownError',
+    category: err.category || 'General',
+    sampleMessage: err.sampleMessage || err.sample_message || '',
+    occurrences: err.occurrences !== undefined ? err.occurrences : (err.count || 1),
+    affectedProjects,
+    hasVerifiedFix: err.hasVerifiedFix !== undefined ? Boolean(err.hasVerifiedFix) : Boolean(err.has_verified_fix),
+  };
+}
+
+export function normalizeVerifiedFix(fix) {
+  if (!fix) return fix;
+  return {
+    ...fix,
+    id: fix.id || fix.fixId || fix.fix_id,
+    fixId: fix.fixId || fix.fix_id || fix.id,
+    projectId: fix.projectId || fix.project_id,
+    projectName: fix.projectName || fix.project_name || fix.projectId || fix.project_id,
+    errorType: fix.errorType || fix.error_type || 'Resolved Issue',
+    solutionSummary: fix.solutionSummary || fix.solution_summary || fix.description || '',
+    verificationMethod: fix.verificationMethod || fix.verification_method || fix.verification_command || 'Manual Verification',
+    testResult: fix.testResult || fix.test_result || fix.verification_details || 'Verified successfully',
+    status: fix.status || 'VERIFIED',
+    verifiedAt: fix.verifiedAt || fix.verified_at,
+    recurrenceCountAfterFix: fix.recurrenceCountAfterFix !== undefined ? fix.recurrenceCountAfterFix : (fix.recurrence_count_after_fix || 0),
+    author: fix.author || 'AI Recommendation + Developer Verification',
+  };
+}
+
 export async function fetchGlobalOverview() {
   const result = await safeApiFetch('/analytics/overview');
   const data = unwrapData(result);
@@ -233,10 +273,10 @@ export async function fetchGlobalOverview() {
         ? (raw.recentRuns || raw.recent_runs).map(normalizeRun)
         : [],
       recurringErrors: Array.isArray(raw.recurringErrors || raw.recurring_errors)
-        ? (raw.recurringErrors || raw.recurring_errors)
+        ? (raw.recurringErrors || raw.recurring_errors).map(normalizeRecurringError)
         : [],
       verifiedFixes: Array.isArray(raw.verifiedFixes || raw.verified_fixes)
-        ? (raw.verifiedFixes || raw.verified_fixes)
+        ? (raw.verifiedFixes || raw.verified_fixes).map(normalizeVerifiedFix)
         : [],
       performanceTrend: Array.isArray(raw.performanceTrend || raw.performance_trend)
         ? (raw.performanceTrend || raw.performance_trend)
@@ -472,11 +512,11 @@ export async function fetchAllFixes() {
   const result = await safeApiFetch('/fixes');
   const list = unwrapList(result);
   if (result.ok && list !== null) {
-    return { data: list, isMock: false };
+    return { data: list.map(normalizeVerifiedFix), isMock: false };
   }
 
   if (!isBackendLive || FORCE_MOCK) {
-    return { data: MOCK_VERIFIED_FIXES, isMock: true };
+    return { data: MOCK_VERIFIED_FIXES.map(normalizeVerifiedFix), isMock: true };
   }
 
   return { data: [], isMock: false, error: result.error || 'Failed to fetch fixes' };

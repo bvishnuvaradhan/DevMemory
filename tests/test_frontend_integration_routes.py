@@ -204,6 +204,13 @@ def test_get_analytics_overview_endpoint(client):
     assert len(data["recentRuns"]) == 2
     assert "verifiedFixes" in data
     assert len(data["verifiedFixes"]) == 1
+    assert "recurringErrors" in data
+    assert isinstance(data["recurringErrors"], list)
+    for rec in data["recurringErrors"]:
+        assert "affectedProjects" in rec
+        assert isinstance(rec["affectedProjects"], list)
+        assert "occurrences" in rec
+        assert "errorType" in rec
 
 
 def test_get_events_endpoints(client):
