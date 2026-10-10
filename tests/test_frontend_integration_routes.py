@@ -272,3 +272,157 @@ def test_get_events_endpoints(client):
     assert data_proj["success"] is True
     assert len(data_proj["data"]) == 1
     assert data_proj["data"][0]["projectId"] == "proj_frontend_alpha"
+
+
+def test_frontend_fix_verification_workflow(client, test_db):
+    """End-to-end verification workflow from web UI perspective:
+    1. Proposes a fix for an incident.
+    2. Rejects unevidenced exit_code 0 claims with HTTP 422.
+    3. Rejects cross-tenant unauthorized verification with HTTP 403.
+    4. Persists valid verification with command/details evidence.
+    5. Confirms verified status on GET /incidents, GET /projects/{id}/incidents, and GET /fixes/{id}.
+    6. Verifies state transitions on failure and trusted event_id execution.
+    """
+    now = datetime.now(timezone.utc)
+
+    # Seed an incident for proj_frontend_alpha
+    test_db.incidents.insert_one({
+        "incident_id": "inc_alpha_fix_test",
+        "event_id": "evt_run_01",
+        "project_id": "proj_frontend_alpha",
+        "error_type": "ImportError",
+        "error_message": "No module named 'services.auth'",
+        "error_signature": "ImportError: No module named 'services.auth'",
+        "stack_trace": "Traceback (most recent call last):\n  File 'app.py', line 2",
+        "file_path": "app.py",
+        "line": 2,
+        "column": 1,
+        "is_public": False,
+        "diagnosis_status": "diagnosed",
+        "created_at": now,
+        "updated_at": now,
+    })
+
+    # Seed trusted recorded command runs for alpha and beta
+    test_db.command_runs.insert_one({
+        "event_id": "evt_alpha_trusted_pass",
+        "project_id": "proj_frontend_alpha",
+        "command": "pytest tests/test_auth.py",
+        "exit_code": 0,
+        "status": "success",
+        "duration_ms": 110,
+        "stdout": "5 passed in 0.11s",
+        "stderr": "",
+        "started_at": now,
+        "finished_at": now,
+        "created_at": now,
+    })
+
+    # 1. Propose fix for inc_alpha_fix_test
+    res_create = client.post(
+        "/api/v1/incidents/inc_alpha_fix_test/fixes?project_id=proj_frontend_alpha",
+        json={"description": "Add auth service export to __init__.py"},
+    )
+    assert res_create.status_code == 201
+    create_data = res_create.json()["data"]
+    fix_id = create_data["fix_id"]
+    assert create_data["status"] == "proposed"
+    assert create_data["verified_at"] is None
+
+    # 2. Unevidenced exit_code 0 claim must be rejected (HTTP 422)
+    res_unevidenced = client.post(
+        f"/api/v1/fixes/{fix_id}/verify?project_id=proj_frontend_alpha",
+        json={"exit_code": 0, "source": "user_confirmation"},
+    )
+    assert res_unevidenced.status_code == 422
+    err_body = res_unevidenced.json()
+    err_text = str(err_body.get("error") or err_body.get("detail") or "")
+    assert "insufficient" in err_text.lower()
+
+    # 3. Cross-tenant project context mismatch must be rejected (HTTP 403)
+    res_mismatch = client.post(
+        f"/api/v1/fixes/{fix_id}/verify?project_id=proj_frontend_beta",
+        json={
+            "exit_code": 0,
+            "command": "pytest tests/test_auth.py",
+            "details": "Ran test suite and passed",
+        },
+    )
+    assert res_mismatch.status_code == 403
+
+    # 4. Valid verification with command + details evidence succeeds
+    res_verify = client.post(
+        f"/api/v1/fixes/{fix_id}/verify?project_id=proj_frontend_alpha",
+        json={
+            "exit_code": 0,
+            "command": "pytest tests/test_auth.py",
+            "details": "Verified 5 passing tests after applying fix",
+            "source": "user_confirmation",
+        },
+    )
+    assert res_verify.status_code == 200
+    verify_data = res_verify.json()["data"]
+    assert verify_data["status"] == "verified"
+    assert verify_data["verified_at"] is not None
+    assert verify_data["verification_command"] == "pytest tests/test_auth.py"
+    assert verify_data["verification_exit_code"] == 0
+
+    # 5. Incident lookup returns enriched fix_outcome with status='verified'
+    res_inc = client.get("/api/v1/incidents/inc_alpha_fix_test")
+    assert res_inc.status_code == 200
+    inc_data = res_inc.json()["data"]
+    assert inc_data["fix_outcome"] is not None
+    assert inc_data["fix_outcome"]["status"] == "verified"
+    assert inc_data["fix_outcome"]["fix_id"] == fix_id
+
+    # Project-filtered incidents also include enriched fix_outcome
+    res_proj_incs = client.get("/api/v1/projects/proj_frontend_alpha/incidents")
+    assert res_proj_incs.status_code == 200
+    proj_incs = res_proj_incs.json()["data"]["items"]
+    alpha_inc = next((i for i in proj_incs if i["incident_id"] == "inc_alpha_fix_test"), None)
+    assert alpha_inc is not None
+    assert alpha_inc["fix_outcome"] is not None
+    assert alpha_inc["fix_outcome"]["status"] == "verified"
+
+    # Direct fix lookup returns verified status
+    res_fix = client.get(f"/api/v1/fixes/{fix_id}?project_id=proj_frontend_alpha")
+    assert res_fix.status_code == 200
+    assert res_fix.json()["data"]["status"] == "verified"
+
+    # 6. Re-verifying with failing exit_code transitions status to 'failed' and clears verified_at
+    res_fail = client.post(
+        f"/api/v1/fixes/{fix_id}/verify?project_id=proj_frontend_alpha",
+        json={
+            "exit_code": 1,
+            "command": "pytest tests/test_auth.py",
+            "details": "Regression observed on test_auth_token",
+        },
+    )
+    assert res_fail.status_code == 200
+    fail_data = res_fail.json()["data"]
+    assert fail_data["status"] == "failed"
+    assert fail_data["verified_at"] is None
+
+    # Incident reflects the updated failed status
+    res_inc_after_fail = client.get("/api/v1/incidents/inc_alpha_fix_test")
+    assert res_inc_after_fail.json()["data"]["fix_outcome"]["status"] == "failed"
+
+    # 7. Trusted event_id execution verification (Mode B)
+    # Using run from wrong project rejected with 403
+    res_wrong_evt = client.post(
+        f"/api/v1/fixes/{fix_id}/verify?project_id=proj_frontend_alpha",
+        json={"exit_code": 0, "event_id": "evt_run_02"},  # evt_run_02 belongs to beta
+    )
+    assert res_wrong_evt.status_code == 403
+
+    # Using valid same-project event_id succeeds and sets source to devmemory_runner
+    res_trusted = client.post(
+        f"/api/v1/fixes/{fix_id}/verify?project_id=proj_frontend_alpha",
+        json={"exit_code": 0, "event_id": "evt_alpha_trusted_pass"},
+    )
+    assert res_trusted.status_code == 200
+    trusted_data = res_trusted.json()["data"]
+    assert trusted_data["status"] == "verified"
+    assert trusted_data["verified_at"] is not None
+    assert trusted_data["verification_source"] == "devmemory_runner"
+    assert trusted_data["verification_event_id"] == "evt_alpha_trusted_pass"
