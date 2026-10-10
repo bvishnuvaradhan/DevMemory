@@ -140,6 +140,7 @@ def fuse_candidates(
     vector_matches: List[VectorSearchResult],
     match_source: MatchSource,
     threshold: float = 0.60,
+    incident_dict_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[IncidentMatch]:
     """Combine, deduplicate, and re-rank candidate incidents from lexical and vector retrieval streams.
     
@@ -151,16 +152,18 @@ def fuse_candidates(
     - Enforces threshold filtering and sorts descending by score.
     """
     by_id: Dict[str, Dict[str, Any]] = {}
+    inc_map = incident_dict_map or {}
 
     # 1. Collect Lexical Matches
     for lex in lexical_matches:
+        raw_doc = inc_map.get(lex.incident_id, {})
         by_id[lex.incident_id] = {
             "incident_id": lex.incident_id,
             "project_id": lex.project_id,
-            "error_message": "",
-            "stack_trace": None,
-            "command": None,
-            "resolution_summary": lex.resolution_summary,
+            "error_message": raw_doc.get("error_message", ""),
+            "stack_trace": raw_doc.get("stack_trace"),
+            "command": raw_doc.get("command"),
+            "resolution_summary": lex.resolution_summary or raw_doc.get("resolution_summary"),
             "verification_status": lex.verification_status,
             "lexical_match": lex,
             "vector_match": None,
@@ -173,14 +176,26 @@ def fuse_candidates(
         if vec.incident_id in by_id:
             by_id[vec.incident_id]["vector_match"] = vec
             by_id[vec.incident_id]["vector_score"] = vec.similarity_score
+            if not by_id[vec.incident_id]["error_message"] and vec.error_message:
+                by_id[vec.incident_id]["error_message"] = vec.error_message
+            if not by_id[vec.incident_id]["stack_trace"] and vec.stack_trace:
+                by_id[vec.incident_id]["stack_trace"] = vec.stack_trace
+            if not by_id[vec.incident_id]["command"] and vec.command:
+                by_id[vec.incident_id]["command"] = vec.command
             if not by_id[vec.incident_id]["resolution_summary"]:
                 by_id[vec.incident_id]["resolution_summary"] = vec.resolution_summary
         else:
+            raw_doc = inc_map.get(vec.incident_id, {})
+            c_err = vec.error_message or raw_doc.get("error_message", "")
+            c_stack = vec.stack_trace or raw_doc.get("stack_trace", "")
+            c_cmd = vec.command or raw_doc.get("command", "")
+            c_res = vec.resolution_summary or raw_doc.get("resolution_summary")
+
             # Query lexical score for vector-only candidate to ensure balanced signals
             cand_dict = {
-                "error_message": vec.error_message,
-                "stack_trace": vec.stack_trace or "",
-                "command": vec.command or "",
+                "error_message": c_err,
+                "stack_trace": c_stack,
+                "command": c_cmd,
             }
             query_dict = {
                 "error_message": query_request.error_message,
@@ -192,10 +207,10 @@ def fuse_candidates(
             by_id[vec.incident_id] = {
                 "incident_id": vec.incident_id,
                 "project_id": vec.project_id,
-                "error_message": vec.error_message,
-                "stack_trace": vec.stack_trace,
-                "command": vec.command,
-                "resolution_summary": vec.resolution_summary,
+                "error_message": c_err,
+                "stack_trace": c_stack,
+                "command": c_cmd,
+                "resolution_summary": c_res,
                 "verification_status": vec.verification_status,
                 "lexical_match": None,
                 "vector_match": vec,
@@ -208,7 +223,7 @@ def fuse_candidates(
 
     for item in by_id.values():
         cand_dict = {
-            "error_message": item["error_message"] or (item["lexical_match"].explanation if item["lexical_match"] else ""),
+            "error_message": item["error_message"],
             "stack_trace": item["stack_trace"] or "",
             "command": item["command"] or "",
             "verification_status": item["verification_status"],
@@ -238,6 +253,7 @@ def fuse_candidates(
                     verification_status=item["verification_status"],
                 )
             )
+
 
     fused_results.sort(key=lambda m: m.similarity_score, reverse=True)
     return fused_results

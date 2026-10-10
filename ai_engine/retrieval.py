@@ -313,12 +313,14 @@ def retrieve_memory(
                     project_id=request.project_id,
                     min_score=threshold * 0.75,
                 )
+                cand_map = {c.get("incident_id"): c for c in cand_list if "incident_id" in c}
                 project_matches = fuse_candidates(
                     query_request=request,
                     lexical_matches=lexical_matches,
                     vector_matches=vec_results,
                     match_source=MatchSource.PROJECT_MEMORY,
                     threshold=threshold,
+                    incident_dict_map=cand_map,
                 )
             else:
                 project_matches = lexical_matches
@@ -341,12 +343,14 @@ def retrieve_memory(
                     requesting_project_id=request.project_id,
                     min_score=threshold * 0.75,
                 )
+                cand_cross_map = {c.get("incident_id"): c for c in cand_cross if "incident_id" in c}
                 cross_project_matches = fuse_candidates(
                     query_request=request,
                     lexical_matches=lexical_cross,
                     vector_matches=vec_cross,
                     match_source=MatchSource.CROSS_PROJECT,
                     threshold=threshold,
+                    incident_dict_map=cand_cross_map,
                 )
             else:
                 cross_project_matches = lexical_cross

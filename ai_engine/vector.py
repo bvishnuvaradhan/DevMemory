@@ -307,15 +307,14 @@ class MongoVectorSearchAdapter:
             )
         return self._client[self.database_name][self.collection_name]
 
-    def search_project_vectors(
+    def build_project_search_pipeline(
         self,
         query_vector: List[float],
         project_id: str,
         limit: int = 5,
-        min_score: float = 0.50,
-    ) -> List[VectorSearchResult]:
-        """Execute MongoDB Atlas $vectorSearch pipeline scoped to project_id."""
-        pipeline = [
+    ) -> List[Dict[str, Any]]:
+        """Construct Atlas $vectorSearch pipeline for project-scoped queries."""
+        return [
             {
                 "$vectorSearch": {
                     "index": self.index_name,
@@ -342,6 +341,62 @@ class MongoVectorSearchAdapter:
                 }
             },
         ]
+
+    def build_cross_project_search_pipeline(
+        self,
+        query_vector: List[float],
+        requesting_project_id: str,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Construct Atlas $vectorSearch pipeline for authorized cross-project queries."""
+        return [
+            {
+                "$vectorSearch": {
+                    "index": self.index_name,
+                    "path": self.vector_field,
+                    "queryVector": query_vector,
+                    "numCandidates": limit * 10,
+                    "limit": limit,
+                    "filter": {
+                        "project_id": {"$ne": requesting_project_id},
+                        "is_public": True,
+                    },
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "incident_id": 1,
+                    "project_id": 1,
+                    "error_message": 1,
+                    "stack_trace": 1,
+                    "command": 1,
+                    "resolution_summary": 1,
+                    "verification_status": 1,
+                    "is_public": 1,
+                    "disclose_project_id": 1,
+                    "error_signature": 1,
+                    "score": {"$meta": "vectorSearchScore"},
+                }
+            },
+        ]
+
+    def search_project_vectors(
+        self,
+        query_vector: List[float],
+        project_id: str,
+        limit: int = 5,
+        min_score: float = 0.50,
+    ) -> List[VectorSearchResult]:
+        """Execute MongoDB Atlas $vectorSearch pipeline scoped to project_id."""
+        if not query_vector or all(v == 0.0 for v in query_vector):
+            return []
+
+        pipeline = self.build_project_search_pipeline(
+            query_vector=query_vector,
+            project_id=project_id,
+            limit=limit,
+        )
 
         try:
             coll = self._get_collection()
@@ -387,37 +442,14 @@ class MongoVectorSearchAdapter:
         min_score: float = 0.50,
     ) -> List[VectorSearchResult]:
         """Execute MongoDB Atlas $vectorSearch pipeline for public cross-project precedents."""
-        pipeline = [
-            {
-                "$vectorSearch": {
-                    "index": self.index_name,
-                    "path": self.vector_field,
-                    "queryVector": query_vector,
-                    "numCandidates": limit * 10,
-                    "limit": limit,
-                    "filter": {
-                        "project_id": {"$ne": requesting_project_id},
-                        "is_public": True,
-                    },
-                }
-            },
-            {
-                "$project": {
-                    "_id": 0,
-                    "incident_id": 1,
-                    "project_id": 1,
-                    "error_message": 1,
-                    "stack_trace": 1,
-                    "command": 1,
-                    "resolution_summary": 1,
-                    "verification_status": 1,
-                    "is_public": 1,
-                    "disclose_project_id": 1,
-                    "error_signature": 1,
-                    "score": {"$meta": "vectorSearchScore"},
-                }
-            },
-        ]
+        if not query_vector or all(v == 0.0 for v in query_vector):
+            return []
+
+        pipeline = self.build_cross_project_search_pipeline(
+            query_vector=query_vector,
+            requesting_project_id=requesting_project_id,
+            limit=limit,
+        )
 
         try:
             coll = self._get_collection()

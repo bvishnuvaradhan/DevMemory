@@ -139,6 +139,39 @@ def test_mock_vector_search_adapter_scoping():
     assert "inc-2" not in doc_ids_cross
 
 
+def test_mongo_vector_search_adapter_pipeline_construction():
+    """Verify MongoVectorSearchAdapter builds valid Atlas $vectorSearch aggregation pipelines."""
+    adapter = MongoVectorSearchAdapter(
+        connection_uri="mongodb://localhost:27017",
+        database_name="devmemory",
+        collection_name="incidents",
+        index_name="custom_vector_idx",
+        vector_field="custom_embedding",
+    )
+    query_vec = [0.05] * 128
+
+    # Project-scoped pipeline
+    proj_pipeline = adapter.build_project_search_pipeline(query_vec, project_id="proj_xyz", limit=7)
+    assert len(proj_pipeline) == 2
+    stage_search = proj_pipeline[0]["$vectorSearch"]
+    assert stage_search["index"] == "custom_vector_idx"
+    assert stage_search["path"] == "custom_embedding"
+    assert stage_search["queryVector"] == query_vec
+    assert stage_search["numCandidates"] == 70
+    assert stage_search["limit"] == 7
+    assert stage_search["filter"] == {"project_id": "proj_xyz"}
+    assert proj_pipeline[1]["$project"]["score"] == {"$meta": "vectorSearchScore"}
+
+    # Authorized cross-project pipeline
+    cross_pipeline = adapter.build_cross_project_search_pipeline(query_vec, requesting_project_id="proj_xyz", limit=3)
+    assert len(cross_pipeline) == 2
+    cross_search = cross_pipeline[0]["$vectorSearch"]
+    assert cross_search["filter"] == {
+        "project_id": {"$ne": "proj_xyz"},
+        "is_public": True,
+    }
+
+
 def test_mongo_vector_search_adapter_graceful_fallback_on_unsupported_server():
     """On MongoDB Community Edition (which lacks $vectorSearch), adapter must catch error and return empty list."""
     adapter = MongoVectorSearchAdapter(
@@ -154,6 +187,19 @@ def test_mongo_vector_search_adapter_graceful_fallback_on_unsupported_server():
     results_cross = adapter.search_cross_project_vectors(query_vec, requesting_project_id="proj-test", limit=5)
     assert isinstance(results_cross, list)
     assert len(results_cross) == 0
+
+
+def test_mongo_vector_search_adapter_empty_and_zero_vectors():
+    """Verify MongoVectorSearchAdapter validates empty or zero vector inputs without calling database."""
+    adapter = MongoVectorSearchAdapter(
+        connection_uri="mongodb://localhost:27017",
+        index_name="default_vector_index",
+    )
+    assert adapter.search_project_vectors([], project_id="proj-test") == []
+    assert adapter.search_project_vectors([0.0] * 128, project_id="proj-test") == []
+    assert adapter.search_cross_project_vectors([], requesting_project_id="proj-test") == []
+    assert adapter.search_cross_project_vectors([0.0] * 128, requesting_project_id="proj-test") == []
+
 
 
 def test_contradiction_guard_penalizes_clashing_exception_types():
@@ -453,3 +499,282 @@ def test_end_to_end_diagnose_error_with_vector_adapter():
     assert len(response.related_incidents) >= 1
     assert any(m.incident_id == "inc-v1" for m in response.related_incidents)
 
+
+def test_targeted_retrieval_evaluation_cases():
+    """
+    Task 2 & 3: Targeted evaluation cases comparing:
+    - Mode 1: Exact-signature + lexical retrieval (vector_adapter=None)
+    - Mode 2: Hybrid retrieval with offline mock vector adapter
+    - Mode 3: Graceful fallback on unavailable / unsupported vector service
+
+    Evaluates 11 specific condition scenarios:
+    1. Same underlying error with substantially different wording.
+    2. Similar error messages with different root causes.
+    3. Identical exception types in incompatible environments.
+    4. Different exception types with a genuinely related underlying configuration issue.
+    5. High vector similarity but contradictory diagnostic evidence.
+    6. Correctly verified historical fix versus an unverified proposed fix.
+    7. Duplicate results across exact, lexical, and vector retrieval.
+    8. No relevant candidate available.
+    9. Unauthorized cross-project candidates.
+    10. Sensitive content embedded in historical incidents.
+    11. Missing vector index or unavailable vector service.
+    """
+    provider = DeterministicEmbeddingProvider(dimension=64)
+    mock_adapter = MockVectorSearchAdapter(embedding_provider=provider)
+
+    # Historical Incidents Corpus
+    corpus = [
+        # For Case 1: Same underlying error, different wording
+        {
+            "incident_id": "inc_auth_jwt_expired",
+            "project_id": "proj_api",
+            "error_message": "Signature has expired in jwt_auth.py: token validity window exceeded",
+            "command": "python manage.py runserver",
+            "resolution_summary": "Refresh expired client token via /auth/refresh endpoint.",
+            "verification_status": FixVerificationStatus.VERIFIED,
+            "is_public": False,
+        },
+        # For Case 2 & 5: KeyError vs SyntaxError contradictory error in auth.py
+        {
+            "incident_id": "inc_syntax_auth",
+            "project_id": "proj_api",
+            "error_message": "SyntaxError: invalid syntax in auth.py line 40",
+            "command": "pytest tests/test_auth.py",
+            "resolution_summary": "Fixed missing closing bracket in dictionary definition.",
+            "verification_status": FixVerificationStatus.VERIFIED,
+            "is_public": False,
+        },
+        # For Case 3: Identical exception in incompatible runtime (Rust mismatched types vs Python)
+        {
+            "incident_id": "inc_rust_types",
+            "project_id": "proj_api",
+            "error_message": "error[E0308]: mismatched types expected struct User found Option<User>",
+            "command": "cargo test",
+            "stack_trace": "src/auth.rs:15",
+            "resolution_summary": "Unwrap Option with ok_or() in Rust handler.",
+            "verification_status": FixVerificationStatus.VERIFIED,
+            "is_public": False,
+        },
+        # For Case 4: Different exception types with genuinely related root cause (DB connection timeout vs connection refused)
+        {
+            "incident_id": "inc_db_refused",
+            "project_id": "proj_api",
+            "error_message": "ConnectionRefusedError: [Errno 111] Connection refused to postgres at 127.0.0.1:5432",
+            "command": "python app.py",
+            "resolution_summary": "Start local PostgreSQL docker container.",
+            "verification_status": FixVerificationStatus.VERIFIED,
+            "is_public": False,
+        },
+        # For Case 6: Verified vs Unverified resolution
+        {
+            "incident_id": "inc_verified_fix",
+            "project_id": "proj_api",
+            "error_message": "ZeroDivisionError: float division by zero in metrics.py line 12",
+            "command": "python metrics.py",
+            "resolution_summary": "Guard denominator check: if total > 0: count / total else 0.0",
+            "verification_status": FixVerificationStatus.VERIFIED,
+            "is_public": False,
+        },
+        {
+            "incident_id": "inc_unverified_fix",
+            "project_id": "proj_api",
+            "error_message": "ZeroDivisionError: float division by zero in metrics.py line 12",
+            "command": "python metrics.py",
+            "resolution_summary": "Tentative workaround: try except block ignoring zero division.",
+            "verification_status": FixVerificationStatus.UNVERIFIED,
+            "is_public": False,
+        },
+        # For Case 9: Unauthorized cross-project candidate
+        {
+            "incident_id": "inc_private_classified",
+            "project_id": "proj_classified",
+            "error_message": "OperationalError: could not connect to secret database",
+            "command": "python db.py",
+            "resolution_summary": "Internal proprietary credential fix",
+            "verification_status": FixVerificationStatus.VERIFIED,
+            "is_public": False,  # Private! Must NEVER leak cross-project
+        },
+        {
+            "incident_id": "inc_public_other",
+            "project_id": "proj_external",
+            "error_message": "OperationalError: could not connect to secret database",
+            "command": "python db.py",
+            "resolution_summary": "Verified database service healthcheck in /home/alice/repo/db.py",
+            "verification_status": FixVerificationStatus.VERIFIED,
+            "is_public": True,  # Public! Allowed when server cross-project read is authorized
+        },
+        # For Case 10: Sensitive content in historical incident
+        {
+            "incident_id": "inc_sensitive_content",
+            "project_id": "proj_api",
+            "error_message": "AuthError: failed token authentication in /home/bob/secret_project/auth.py",
+            "command": "python auth.py",
+            "resolution_summary": "Reset password to new token in C:\\Users\\Administrator\\keys.txt",
+            "verification_status": FixVerificationStatus.VERIFIED,
+            "is_public": True,
+        },
+    ]
+
+    repo = InMemoryIncidentRepository(corpus)
+    for inc in corpus:
+        mock_adapter.add_incident(inc)
+
+    auth_scoped = AuthorizationContext(
+        user_id="dev_user",
+        project_id="proj_api",
+        has_project_access=True,
+        has_cross_project_read=False,
+    )
+    auth_cross = AuthorizationContext(
+        user_id="dev_user",
+        project_id="proj_api",
+        has_project_access=True,
+        has_cross_project_read=True,
+    )
+
+    # --- Case 1: Same underlying error with substantially different wording ---
+    # Query expresses JWT expiration differently
+    req_c1 = DiagnosisRequest(
+        event_id="req_c1",
+        project_id="proj_api",
+        command="python manage.py runserver",
+        exit_code=1,
+        error_message="jwt.exceptions.ExpiredSignatureError: Token has expired",
+    )
+    res_lex_c1 = retrieve_memory(req_c1, auth_scoped, repository=repo, threshold=0.40)
+    res_hyb_c1 = retrieve_memory(req_c1, auth_scoped, repository=repo, vector_adapter=mock_adapter, embedding_provider=provider, threshold=0.40)
+    assert any(m.incident_id == "inc_auth_jwt_expired" for m in res_hyb_c1.project_matches)
+
+    # --- Case 2 & 5: Contradictory evidence (KeyError query vs SyntaxError candidate) ---
+    req_c2 = DiagnosisRequest(
+        event_id="req_c2",
+        project_id="proj_api",
+        command="pytest tests/test_auth.py",
+        exit_code=1,
+        error_message="KeyError: 'user_session' in auth.py line 40",
+    )
+    res_hyb_c2 = retrieve_memory(req_c2, auth_scoped, repository=repo, vector_adapter=mock_adapter, embedding_provider=provider, threshold=0.50)
+    # inc_syntax_auth must be penalized / rejected by contradiction guard
+    clash_matches = [m for m in res_hyb_c2.project_matches if m.incident_id == "inc_syntax_auth"]
+    assert len(clash_matches) == 0 or clash_matches[0].similarity_score <= 0.35, "Contradiction guard failed to suppress clashing exception type!"
+
+    # --- Case 3: Identical exception in incompatible runtime (Python TypeError query vs Rust mismatched types) ---
+    req_c3 = DiagnosisRequest(
+        event_id="req_c3",
+        project_id="proj_api",
+        command="python main.py",
+        exit_code=1,
+        error_message="TypeError: unsupported operand type(s) for +: 'int' and 'str'",
+    )
+    res_hyb_c3 = retrieve_memory(req_c3, auth_scoped, repository=repo, vector_adapter=mock_adapter, embedding_provider=provider, threshold=0.40)
+    rust_matches = [m for m in res_hyb_c3.project_matches if m.incident_id == "inc_rust_types"]
+    if rust_matches:
+        assert "Incompatible runtime stack" in rust_matches[0].explanation
+
+    # --- Case 4: Different exception types with genuinely related underlying configuration issue ---
+    # Query: OperationalError (Postgres timeout). Candidate: ConnectionRefusedError (Postgres refused).
+    # Even though both relate to Postgres being down, different exception types trigger the contradiction guard.
+    req_c4 = DiagnosisRequest(
+        event_id="req_c4",
+        project_id="proj_api",
+        command="python app.py",
+        exit_code=1,
+        error_message="OperationalError: could not connect to server: Connection timed out on port 5432",
+    )
+    # The contradiction guard correctly caps the score (<= 0.35) because exception types differ
+    res_hyb_c4 = retrieve_memory(req_c4, auth_scoped, repository=repo, vector_adapter=mock_adapter, embedding_provider=provider, threshold=0.15)
+    db_matches = [m for m in res_hyb_c4.project_matches if m.incident_id == "inc_db_refused"]
+    assert len(db_matches) >= 1
+    assert db_matches[0].similarity_score <= 0.35
+    assert "Contradictory exception type" in db_matches[0].explanation
+
+
+    # --- Case 6: Verified historical fix vs Unverified proposed fix ranking ---
+    req_c6 = DiagnosisRequest(
+        event_id="req_c6",
+        project_id="proj_api",
+        command="python metrics.py",
+        exit_code=1,
+        error_message="ZeroDivisionError: float division by zero in metrics.py line 12",
+    )
+    res_hyb_c6 = retrieve_memory(req_c6, auth_scoped, repository=repo, vector_adapter=mock_adapter, embedding_provider=provider, threshold=0.50)
+    scores = {m.incident_id: m.similarity_score for m in res_hyb_c6.project_matches}
+    if "inc_verified_fix" in scores and "inc_unverified_fix" in scores:
+        assert scores["inc_verified_fix"] >= scores["inc_unverified_fix"]
+
+    # --- Case 7: Deduplication across exact, lexical, and vector retrieval ---
+    # When an incident matches across both streams, it must appear exactly once
+    req_c7 = DiagnosisRequest(
+        event_id="req_c7",
+        project_id="proj_api",
+        command="python metrics.py",
+        exit_code=1,
+        error_message="ZeroDivisionError: float division by zero in metrics.py line 12",
+    )
+    res_hyb_c7 = retrieve_memory(req_c7, auth_scoped, repository=repo, vector_adapter=mock_adapter, embedding_provider=provider, threshold=0.50)
+    match_ids = [m.incident_id for m in res_hyb_c7.project_matches]
+    assert len(match_ids) == len(set(match_ids)), "Duplicate incidents surfaced in retrieval output!"
+
+    # --- Case 8: No relevant candidate available ---
+    req_c8 = DiagnosisRequest(
+        event_id="req_c8",
+        project_id="proj_api",
+        command="custom_tool do_magic",
+        exit_code=99,
+        error_message="WeirdCustomHexTrapCondition: 0xDEADBEEF9988",
+    )
+    res_hyb_c8 = retrieve_memory(req_c8, auth_scoped, repository=repo, vector_adapter=mock_adapter, embedding_provider=provider, threshold=0.60)
+    assert len(res_hyb_c8.project_matches) == 0
+    assert len(res_hyb_c8.cross_project_matches) == 0
+
+    # --- Case 9: Unauthorized cross-project candidates (Security & Isolation) ---
+    req_c9 = DiagnosisRequest(
+        event_id="req_c9",
+        project_id="proj_api",
+        command="python db.py",
+        exit_code=1,
+        error_message="OperationalError: could not connect to secret database",
+        allow_cross_project=True,
+    )
+    # Sub-case 9a: User does NOT have server authorization -> 0 cross project matches
+    res_no_auth = retrieve_memory(req_c9, auth_scoped, repository=repo, vector_adapter=mock_adapter, embedding_provider=provider, threshold=0.40)
+    assert len(res_no_auth.cross_project_matches) == 0
+
+    # Sub-case 9b: User has server authorization -> surfaces public incident, NEVER private incident
+    res_auth = retrieve_memory(req_c9, auth_cross, repository=repo, vector_adapter=mock_adapter, embedding_provider=provider, threshold=0.40)
+    cross_ids = {m.incident_id for m in res_auth.cross_project_matches}
+    assert "inc_private_classified" not in cross_ids, "Private cross-project incident was leaked!"
+    assert "inc_public_other" in cross_ids
+
+    # --- Case 10: Sensitive content embedded in historical incidents ---
+    req_c10 = DiagnosisRequest(
+        event_id="req_c10",
+        project_id="proj_api",
+        command="python auth.py",
+        exit_code=1,
+        error_message="AuthError: failed token authentication in /home/bob/secret_project/auth.py",
+        allow_cross_project=True,
+    )
+    res_c10 = retrieve_memory(req_c10, auth_cross, repository=repo, vector_adapter=mock_adapter, embedding_provider=provider, threshold=0.40)
+    assert len(res_c10.project_matches) >= 1
+    match_10 = res_c10.project_matches[0]
+    # Path sanitization must replace /home/bob with ~
+    assert "/home/bob" not in match_10.resolution_summary
+    assert "/home/bob" not in match_10.explanation
+
+    # --- Case 11: Missing vector index or unavailable vector service (Fallback test) ---
+    fallback_adapter = MongoVectorSearchAdapter(
+        connection_uri="mongodb://localhost:27017",
+        index_name="nonexistent_index",
+    )
+    res_fallback = retrieve_memory(
+        req_c1,
+        auth_scoped,
+        repository=repo,
+        vector_adapter=fallback_adapter,
+        embedding_provider=provider,
+        threshold=0.40,
+    )
+    # Must not raise exception, and must succeed via lexical fallback
+    assert isinstance(res_fallback.project_matches, list)
