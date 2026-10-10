@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from ai_engine.privacy import redact_secrets
 from ai_engine.vector import (
     ConfigurableDenseEmbeddingProvider,
+    EmbeddingStatus,
     MongoVectorSearchAdapter,
     cosine_similarity,
 )
@@ -63,11 +64,18 @@ def validate_live_embedding_provider(
         api_key=api_key,
         model=model,
         dimension=dimension,
+        allow_fallback=False,
+        timeout=timeout,
     )
 
     try:
         report["ran_live"] = True
-        vec = provider.get_embedding(synthetic_query)
+        res = provider.get_embedding_with_status(synthetic_query)
+        if res.status != EmbeddingStatus.LIVE_SUCCESS or res.is_fallback:
+            report["status"] = "FAILED"
+            report["error"] = f"Expected live provider success, received {res.status.value}: {res.error_message}"
+            return report
+        vec = res.vector
 
         # 1. Dimension validation
         if len(vec) != dimension:

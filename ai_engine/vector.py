@@ -9,6 +9,7 @@ Provides:
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
 import hashlib
 import logging
 import math
@@ -22,6 +23,115 @@ from ai_engine.schemas import FixVerificationStatus
 logger = logging.getLogger(__name__)
 
 DEFAULT_VECTOR_DIMENSION = 128
+
+
+class EmbeddingStatus(str, Enum):
+    """Explicit status of an embedding generation operation."""
+    LIVE_SUCCESS = "live_success"
+    DETERMINISTIC_FALLBACK = "deterministic_fallback"
+    OFFLINE_OPT_OUT = "offline_opt_out"
+    UNAVAILABLE_FAILURE = "unavailable_failure"
+
+
+class EmbeddingProviderError(Exception):
+    """Raised when an embedding provider fails and cannot safely fall back."""
+    pass
+
+
+class InvalidVectorError(EmbeddingProviderError):
+    """Raised when an embedding vector is malformed, non-numeric, non-finite, or invalid."""
+    pass
+
+
+class InvalidConfigurationError(EmbeddingProviderError):
+    """Raised when embedding provider configuration is invalid or unsupported."""
+    pass
+
+
+@dataclass
+class EmbeddingResult:
+    """Detailed result of an embedding operation including provenance and status."""
+    vector: List[float]
+    status: EmbeddingStatus
+    dimension: int
+    model: str
+    is_fallback: bool
+    error_message: Optional[str] = None
+    provider_name: str = "dense"
+
+
+def validate_and_normalize_vector(
+    vector: Any,
+    expected_dim: int,
+    allow_zero: bool = False,
+) -> List[float]:
+    """Validate vector dimensions, numeric types, finiteness, and unit-normalize.
+
+    Raises:
+        InvalidVectorError: If vector is None, not a list/tuple, wrong dimension,
+                            contains non-numeric or non-finite elements, or has zero magnitude.
+    """
+    if vector is None:
+        raise InvalidVectorError("Vector cannot be None")
+
+    if not isinstance(vector, (list, tuple)):
+        raise InvalidVectorError(f"Vector must be a list or tuple, got {type(vector).__name__}")
+
+    if len(vector) != expected_dim:
+        raise InvalidVectorError(
+            f"Vector dimension mismatch: expected {expected_dim}, got {len(vector)}"
+        )
+
+    for i, x in enumerate(vector):
+        if isinstance(x, bool) or not isinstance(x, (int, float)):
+            raise InvalidVectorError(
+                f"Vector element at index {i} is non-numeric: {type(x).__name__}"
+            )
+        if not math.isfinite(x):
+            raise InvalidVectorError(
+                f"Vector element at index {i} is non-finite: {x}"
+            )
+
+    sum_sq = sum(float(x) * float(x) for x in vector)
+    if sum_sq <= 0.0:
+        if allow_zero:
+            return [0.0] * expected_dim
+        raise InvalidVectorError("Vector magnitude is zero; cannot unit-normalize an all-zero vector")
+
+    norm = math.sqrt(sum_sq)
+    if abs(norm - 1.0) < 1e-4:
+        return [round(float(x), 6) for x in vector]
+    return [round(float(x) / norm, 6) for x in vector]
+
+
+def validate_model_configuration(model: str, dimension: int) -> None:
+    """Validate model name and dimension combinations against supported bounds.
+
+    Raises:
+        InvalidConfigurationError: If model or dimension combination is invalid.
+    """
+    if not model or not isinstance(model, str) or not model.strip():
+        raise InvalidConfigurationError("Embedding model name cannot be empty")
+    if dimension <= 0:
+        raise InvalidConfigurationError(f"Embedding dimension must be a positive integer, got {dimension}")
+
+    m_lower = model.lower()
+    if "text-embedding-ada-002" in m_lower:
+        if dimension != 1536:
+            raise InvalidConfigurationError(
+                f"Model '{model}' fixed dimension is 1536, but requested dimension is {dimension}"
+            )
+    elif "text-embedding-3-small" in m_lower:
+        if dimension > 1536:
+            raise InvalidConfigurationError(
+                f"Model '{model}' maximum dimension is 1536, but requested dimension is {dimension}"
+            )
+    elif "text-embedding-3-large" in m_lower:
+        if dimension > 3072:
+            raise InvalidConfigurationError(
+                f"Model '{model}' maximum dimension is 3072, but requested dimension is {dimension}"
+            )
+
 
 
 def build_embedding_text(
@@ -157,12 +267,24 @@ class ConfigurableDenseEmbeddingProvider:
         dimension: int = 1536,
         client: Optional[DenseEmbeddingClient] = None,
         fallback_provider: Optional[EmbeddingProvider] = None,
+        allow_fallback: bool = True,
+        timeout: float = 5.0,
     ) -> None:
+        selected_model = model or os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+        validate_model_configuration(selected_model, dimension)
+        if timeout <= 0:
+            raise InvalidConfigurationError(f"Timeout must be positive, got {timeout}")
+
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.model = model or os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+        self.model = selected_model
         self._dim = dimension
         self._client = client
+        self.allow_fallback = allow_fallback
+        self.timeout = timeout
         self._fallback = fallback_provider or DeterministicEmbeddingProvider(dimension=dimension)
+
+        self.last_status: Optional[EmbeddingStatus] = None
+        self.last_result: Optional[EmbeddingResult] = None
 
     @property
     def dimension(self) -> int:
@@ -181,29 +303,49 @@ class ConfigurableDenseEmbeddingProvider:
             sanitized = sanitized[:1000].rsplit(" ", 1)[0] + " ... [truncated]"
         return sanitized.strip()
 
-    def get_embedding(self, text: str) -> List[float]:
-        """Generate normalized dense embedding vector with fallback on missing credentials or API error."""
+    def get_embedding_with_status(self, text: str) -> EmbeddingResult:
+        """Generate normalized dense embedding vector with explicit status tracking and provenance."""
         clean_text = self.sanitize_input(text)
         if not clean_text:
-            return [0.0] * self._dim
+            res = EmbeddingResult(
+                vector=[0.0] * self._dim,
+                status=EmbeddingStatus.DETERMINISTIC_FALLBACK,
+                dimension=self._dim,
+                model=self.model,
+                is_fallback=True,
+                error_message="Empty input text",
+            )
+            self.last_status = res.status
+            self.last_result = res
+            return res
 
         # Check external AI opt-out privacy policy
         if os.getenv("DEV_MEMORY_DISABLE_EXTERNAL_AI", "").lower() in ("1", "true", "yes") or \
            os.getenv("DEVMEMORY_OFFLINE_MODE", "").lower() in ("1", "true", "yes"):
             logger.info("External AI inference disabled by privacy configuration; using deterministic fallback.")
-            return self._fallback.get_embedding(clean_text)
+            return self._execute_fallback(clean_text, EmbeddingStatus.OFFLINE_OPT_OUT, "Privacy opt-out enabled")
 
         # If custom client is injected (e.g. for offline mock testing)
         if self._client is not None:
             try:
                 raw_vec = self._client.create_embedding(clean_text, self.model)
-                return self._normalize_vector(raw_vec)
+                normalized = validate_and_normalize_vector(raw_vec, self._dim)
+                res = EmbeddingResult(
+                    vector=normalized,
+                    status=EmbeddingStatus.LIVE_SUCCESS,
+                    dimension=self._dim,
+                    model=self.model,
+                    is_fallback=False,
+                )
+                self.last_status = res.status
+                self.last_result = res
+                return res
             except Exception as exc:
                 safe_exc = redact_secrets(str(exc))
-                logger.warning("Dense embedding client failed (%s); using deterministic fallback.", safe_exc)
-                return self._fallback.get_embedding(clean_text)
+                logger.warning("Dense embedding client failed (%s); evaluating fallback.", safe_exc)
+                return self._execute_fallback(clean_text, EmbeddingStatus.DETERMINISTIC_FALLBACK, safe_exc)
 
-        # If live credentials exist and official openai SDK is installed
+        # If live credentials exist and official openai API call
         if self.api_key:
             try:
                 import urllib.request
@@ -226,37 +368,130 @@ class ConfigurableDenseEmbeddingProvider:
                         "User-Agent": "DevMemory-AI-Engine/1.0",
                     },
                 )
-                with urllib.request.urlopen(req, timeout=5.0) as resp:
-                    resp_json = json.loads(resp.read().decode("utf-8"))
-                    raw_vec = resp_json["data"][0]["embedding"]
-                    return self._normalize_vector(raw_vec)
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    resp_data = resp.read().decode("utf-8")
+                    resp_json = json.loads(resp_data)
+
+                    # Validate response structure
+                    if not isinstance(resp_json, dict):
+                        raise InvalidVectorError("Response root is not a JSON object")
+                    if "data" not in resp_json or not isinstance(resp_json["data"], list) or not resp_json["data"]:
+                        raise InvalidVectorError("Response missing non-empty 'data' list")
+                    item = resp_json["data"][0]
+                    if not isinstance(item, dict) or "embedding" not in item:
+                        raise InvalidVectorError("Response data item missing 'embedding'")
+
+                    raw_vec = item["embedding"]
+                    normalized = validate_and_normalize_vector(raw_vec, self._dim)
+                    res = EmbeddingResult(
+                        vector=normalized,
+                        status=EmbeddingStatus.LIVE_SUCCESS,
+                        dimension=self._dim,
+                        model=self.model,
+                        is_fallback=False,
+                    )
+                    self.last_status = res.status
+                    self.last_result = res
+                    return res
             except Exception as exc:
                 safe_exc = redact_secrets(str(exc))
-                logger.warning("Live dense embedding request failed (%s); falling back to deterministic.", safe_exc)
-                return self._fallback.get_embedding(clean_text)
+                logger.warning("Live dense embedding request failed (%s); evaluating fallback.", safe_exc)
+                return self._execute_fallback(clean_text, EmbeddingStatus.DETERMINISTIC_FALLBACK, safe_exc)
 
         # Default when no external credentials configured: deterministic fallback
-        return self._fallback.get_embedding(clean_text)
+        return self._execute_fallback(clean_text, EmbeddingStatus.DETERMINISTIC_FALLBACK, "No external credentials configured")
+
+    def _execute_fallback(
+        self,
+        clean_text: str,
+        status: EmbeddingStatus,
+        reason: str,
+    ) -> EmbeddingResult:
+        """Execute deterministic fallback with strict contract and dimension enforcement."""
+        if not self.allow_fallback:
+            res_fail = EmbeddingResult(
+                vector=[0.0] * self._dim,
+                status=EmbeddingStatus.UNAVAILABLE_FAILURE,
+                dimension=self._dim,
+                model=self.model,
+                is_fallback=False,
+                error_message=reason,
+            )
+            self.last_status = res_fail.status
+            self.last_result = res_fail
+            raise EmbeddingProviderError(f"Embedding provider failed and fallback is disabled: {reason}")
+
+        # Dimension compatibility check
+        if self._fallback.dimension != self._dim:
+            res_fail = EmbeddingResult(
+                vector=[0.0] * self._dim,
+                status=EmbeddingStatus.UNAVAILABLE_FAILURE,
+                dimension=self._dim,
+                model=self.model,
+                is_fallback=False,
+                error_message=(
+                    f"Fallback dimension ({self._fallback.dimension}) does not match "
+                    f"required embedding dimension ({self._dim})"
+                ),
+            )
+            self.last_status = res_fail.status
+            self.last_result = res_fail
+            raise EmbeddingProviderError(
+                f"Deterministic fallback dimension ({self._fallback.dimension}) does not match "
+                f"required embedding dimension ({self._dim}); failing closed to prevent contract violation."
+            )
+
+        fallback_vec = self._fallback.get_embedding(clean_text)
+        try:
+            norm_vec = validate_and_normalize_vector(fallback_vec, self._dim, allow_zero=True)
+        except InvalidVectorError as err:
+            res_fail = EmbeddingResult(
+                vector=[0.0] * self._dim,
+                status=EmbeddingStatus.UNAVAILABLE_FAILURE,
+                dimension=self._dim,
+                model=self.model,
+                is_fallback=True,
+                error_message=f"Fallback vector validation failed: {err}",
+            )
+            self.last_status = res_fail.status
+            self.last_result = res_fail
+            raise EmbeddingProviderError(f"Fallback vector validation failed: {err}")
+
+        res = EmbeddingResult(
+            vector=norm_vec,
+            status=status,
+            dimension=self._dim,
+            model=self.model,
+            is_fallback=True,
+            error_message=reason,
+        )
+        self.last_status = res.status
+        self.last_result = res
+        return res
+
+    def get_embedding(self, text: str) -> List[float]:
+        """Generate normalized dense embedding vector.
+
+        Preserves standard EmbeddingProvider protocol. Callers seeking execution provenance
+        and status can call get_embedding_with_status() or inspect provider.last_status.
+        """
+        res = self.get_embedding_with_status(text)
+        return res.vector
 
     def _normalize_vector(self, vector: List[float]) -> List[float]:
-        """Validate finite dimensions and unit normalize."""
-        if not vector or len(vector) != self._dim:
+        """Validate finite dimensions and unit normalize (backward compatibility)."""
+        try:
+            return validate_and_normalize_vector(vector, self._dim, allow_zero=True)
+        except InvalidVectorError:
             return [0.0] * self._dim
-
-        # Non-finite check (NaN, Inf)
-        if not all(math.isfinite(x) for x in vector):
-            return [0.0] * self._dim
-
-        norm = math.sqrt(sum(v * v for v in vector))
-        if norm > 0.0:
-            return [round(v / norm, 6) for v in vector]
-        return [0.0] * self._dim
 
 
 def get_configured_embedding_provider(
     provider_type: Optional[str] = None,
     dimension: Optional[int] = None,
     model: Optional[str] = None,
+    allow_fallback: bool = True,
+    timeout: float = 5.0,
 ) -> EmbeddingProvider:
     """Factory creating the appropriate embedding provider based on environment and configuration.
 
@@ -269,7 +504,12 @@ def get_configured_embedding_provider(
 
     if p_type == "dense" or (p_type == "auto" and os.getenv("OPENAI_API_KEY")):
         dense_dim = dimension or env_dim or 1536
-        return ConfigurableDenseEmbeddingProvider(dimension=dense_dim, model=selected_model)
+        return ConfigurableDenseEmbeddingProvider(
+            dimension=dense_dim,
+            model=selected_model,
+            allow_fallback=allow_fallback,
+            timeout=timeout,
+        )
 
     det_dim = dimension or env_dim or DEFAULT_VECTOR_DIMENSION
     return DeterministicEmbeddingProvider(dimension=det_dim)
@@ -359,6 +599,12 @@ class MockVectorSearchAdapter:
                 command=inc_copy.get("command"),
             )
             embedding = self.embedding_provider.get_embedding(text)
+        else:
+            if not isinstance(embedding, (list, tuple)) or not all(
+                isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+                for x in embedding
+            ):
+                raise InvalidVectorError("Cannot add incident with non-numeric or non-finite embedding vector")
 
         inc_copy["_embedding"] = embedding
         self._stored.append(inc_copy)
@@ -371,6 +617,12 @@ class MockVectorSearchAdapter:
         min_score: float = 0.50,
     ) -> List[VectorSearchResult]:
         """Search stored vectors strictly scoped to project_id."""
+        if not query_vector or not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+            for v in query_vector
+        ) or all(v == 0.0 for v in query_vector):
+            return []
+
         results: List[VectorSearchResult] = []
 
         for item in self._stored:
@@ -414,6 +666,12 @@ class MockVectorSearchAdapter:
         min_score: float = 0.50,
     ) -> List[VectorSearchResult]:
         """Search stored vectors across public incidents from other projects."""
+        if not query_vector or not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+            for v in query_vector
+        ) or all(v == 0.0 for v in query_vector):
+            return []
+
         results: List[VectorSearchResult] = []
 
         for item in self._stored:
@@ -574,7 +832,10 @@ class MongoVectorSearchAdapter:
         min_score: float = 0.50,
     ) -> List[VectorSearchResult]:
         """Execute MongoDB Atlas $vectorSearch pipeline scoped to project_id."""
-        if not query_vector or all(v == 0.0 for v in query_vector):
+        if not query_vector or not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+            for v in query_vector
+        ) or all(v == 0.0 for v in query_vector):
             return []
 
         pipeline = self.build_project_search_pipeline(
@@ -627,7 +888,10 @@ class MongoVectorSearchAdapter:
         min_score: float = 0.50,
     ) -> List[VectorSearchResult]:
         """Execute MongoDB Atlas $vectorSearch pipeline for public cross-project precedents."""
-        if not query_vector or all(v == 0.0 for v in query_vector):
+        if not query_vector or not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+            for v in query_vector
+        ) or all(v == 0.0 for v in query_vector):
             return []
 
         pipeline = self.build_cross_project_search_pipeline(
