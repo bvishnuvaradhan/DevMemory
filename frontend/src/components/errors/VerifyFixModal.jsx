@@ -11,7 +11,7 @@ import {
   ArrowRight,
   Info,
 } from 'lucide-react';
-import { verifyFix, createIncidentFix } from '../../api/devmemoryApi';
+import { verifyFix, createIncidentFix, fetchProjectRuns } from '../../api/devmemoryApi';
 
 export default function VerifyFixModal({
   isOpen,
@@ -20,17 +20,33 @@ export default function VerifyFixModal({
   incident,
   projectId,
   onVerified,
-  availableRuns = [],
 }) {
   const [evidenceMode, setEvidenceMode] = useState('command'); // 'command' | 'event'
   const [command, setCommand] = useState('');
   const [details, setDetails] = useState('');
   const [exitCode, setExitCode] = useState(0);
   const [source, setSource] = useState('user_confirmation');
-  const [eventId, setEventId] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [availableRuns, setAvailableRuns] = useState([]);
+  // New state declarations to fix ReferenceError and handle UI feedback
   const [errorMsg, setErrorMsg] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [eventId, setEventId] = useState('');
+
+  // Load recent runs for the current project when using event evidence mode
+  useEffect(() => {
+    if (isOpen && evidenceMode === 'event' && projectId) {
+      fetchProjectRuns(projectId).then((res) => {
+        if (res && res.data) {
+          setAvailableRuns(res.data);
+        }
+      });
+    }
+    // Clear runs when switching away from event mode
+    if (evidenceMode !== 'event') {
+      setAvailableRuns([]);
+    }
+  }, [isOpen, evidenceMode, projectId]);
 
   // Pre-fill fields from fix or incident recommendations when modal opens
   useEffect(() => {
