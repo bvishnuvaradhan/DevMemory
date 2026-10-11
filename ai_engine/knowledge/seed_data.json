@@ -1,0 +1,316 @@
+[
+  {
+    "kb_id": "kb_py_mod_not_found",
+    "error_pattern": "ModuleNotFoundError: No module named '<module_name>'",
+    "language": "python",
+    "title": "Python Module Not Found",
+    "explanation": "Python runtime cannot locate the imported package or module within sys.path or the active virtual environment.",
+    "possible_causes": [
+      "The dependency is not installed in the active virtual environment",
+      "The command executed against the global Python interpreter rather than a virtual environment",
+      "Typo in module or package import name",
+      "Missing __init__.py in a local directory intended as a Python package"
+    ],
+    "diagnostic_checks": [
+      "Check active environment using 'which python' or 'Get-Command python'",
+      "Verify installed packages using 'pip list' or 'poetry show'",
+      "Inspect sys.path from Python interactive shell"
+    ],
+    "suggested_resolutions": [
+      "Activate the project virtual environment before running the command",
+      "Install the missing dependency via 'pip install <module_name>' or pyproject.toml",
+      "Verify working directory or PYTHONPATH contains the package root"
+    ],
+    "tags": ["python", "import", "dependencies", "environment"]
+  },
+  {
+    "kb_id": "kb_py_import_err",
+    "error_pattern": "ImportError: cannot import name '<name>' from '<module>'",
+    "language": "python",
+    "title": "Python Circular or Invalid Import",
+    "explanation": "The module was located successfully, but the requested symbol or attribute does not exist within it or is not yet available due to circular dependencies.",
+    "possible_causes": [
+      "Circular import between two interdependent modules",
+      "A local file shares the same name as a standard library or third-party module (shadowing)",
+      "The requested symbol was deprecated, renamed, or moved in the installed library version",
+      "Typo in the imported attribute or class name"
+    ],
+    "diagnostic_checks": [
+      "Check if any local file (e.g. email.py, requests.py) shadows an installed module",
+      "Examine call trace for circular import cycles (module A imports B which imports A)",
+      "Check library version and exported symbols via 'dir(module)'"
+    ],
+    "suggested_resolutions": [
+      "Rename shadowing local files or packages",
+      "Refactor circular dependencies by deferring imports inside functions or splitting shared types",
+      "Update import path to match the installed library version's API"
+    ],
+    "tags": ["python", "import", "circular-dependency", "shadowing"]
+  },
+  {
+    "kb_id": "kb_py_attr_err",
+    "error_pattern": "AttributeError: 'NoneType' object has no attribute '<attribute>'",
+    "language": "python",
+    "title": "Python Attribute Access on NoneType",
+    "explanation": "Attempted to access a field, method, or property on an object that evaluated to None at runtime.",
+    "possible_causes": [
+      "A function that returns None implicitly or explicitly had its return value chained",
+      "A database query, dictionary lookup, or API search returned no record (empty result)",
+      "An uninitialized instance variable was accessed before assignment"
+    ],
+    "diagnostic_checks": [
+      "Check where the variable received its value immediately prior to the failing line",
+      "Verify whether database queries or API calls returned an expected record",
+      "Inspect if an in-place modifying method (e.g. list.sort()) returned None"
+    ],
+    "suggested_resolutions": [
+      "Add a guard clause or check 'if obj is not None:' before accessing attributes",
+      "Provide a fallback default or raise a descriptive custom error earlier",
+      "Do not assign the return value of in-place mutator methods"
+    ],
+    "tags": ["python", "runtime", "null-pointer", "attributes"]
+  },
+  {
+    "kb_id": "kb_py_type_err",
+    "error_pattern": "TypeError: unsupported operand type(s) for <op>: '<type1>' and '<type2>'",
+    "language": "python",
+    "title": "Python Unsupported Operand Type",
+    "explanation": "An arithmetic, bitwise, or concatenation operator was applied between incompatible types (e.g. str and int).",
+    "possible_causes": [
+      "Input data parsed from JSON, CLI, or environment variables remained a string",
+      "Implicit assumption that a value was numeric when it was None or string",
+      "Operator precedence misunderstanding"
+    ],
+    "diagnostic_checks": [
+      "Inspect the runtime types using 'type(var)' or logging",
+      "Check data coercion at API boundaries or environment parsing"
+    ],
+    "suggested_resolutions": [
+      "Explicitly convert types using int(), float(), or str() where appropriate",
+      "Validate inputs at domain boundaries using Pydantic schemas or type checks",
+      "Ensure None values are handled with sensible defaults"
+    ],
+    "tags": ["python", "runtime", "type-error", "coercion"]
+  },
+  {
+    "kb_id": "kb_py_key_err",
+    "error_pattern": "KeyError: '<key_name>'",
+    "language": "python",
+    "title": "Python Dictionary Key Error",
+    "explanation": "Direct subscript lookup dict['key'] failed because the requested key does not exist in the dictionary.",
+    "possible_causes": [
+      "Optional field omitted from an API response or configuration dictionary",
+      "Typo or casing mismatch in the dictionary key",
+      "Accessing a key before population in an asynchronous or multi-step workflow"
+    ],
+    "diagnostic_checks": [
+      "Inspect dict.keys() at the point of failure",
+      "Verify casing of keys (e.g. 'authorization' vs 'Authorization')"
+    ],
+    "suggested_resolutions": [
+      "Use dict.get('key_name', default) instead of direct subscript indexing",
+      "Check existence using 'if key in my_dict:' before access",
+      "Validate dictionary payloads against strict Pydantic models"
+    ],
+    "tags": ["python", "runtime", "dictionary", "key-error"]
+  },
+  {
+    "kb_id": "kb_py_file_not_found",
+    "error_pattern": "FileNotFoundError: [Errno 2] No such file or directory: '<path>'",
+    "language": "python",
+    "title": "Python File Not Found",
+    "explanation": "An operation attempted to open or read a file at a path that does not exist relative to the current working directory.",
+    "possible_causes": [
+      "Relative path evaluated from a different current working directory than expected",
+      "File path typo or incorrect path separator between OS environments",
+      "File has not yet been generated by an upstream build or export step"
+    ],
+    "diagnostic_checks": [
+      "Print os.getcwd() to inspect the actual execution directory",
+      "Check os.path.exists(path) with both relative and absolute paths"
+    ],
+    "suggested_resolutions": [
+      "Construct paths relative to the current file using pathlib.Path(__file__).parent",
+      "Use pathlib.Path for cross-platform slash normalization",
+      "Ensure prerequisite files are created before dependent execution steps"
+    ],
+    "tags": ["python", "filesystem", "path", "io"]
+  },
+  {
+    "kb_id": "kb_js_type_read_prop",
+    "error_pattern": "TypeError: Cannot read properties of undefined (reading '<property>')",
+    "language": "javascript",
+    "title": "JavaScript Property Access on Undefined",
+    "explanation": "Attempted to access a property or invoke a method on an object reference that is currently undefined or null.",
+    "possible_causes": [
+      "Component rendered before asynchronous network fetch completed",
+      "Optional nested field missing in API payload",
+      "Function parameter omitted or passed without expected default object"
+    ],
+    "diagnostic_checks": [
+      "Log the parent object before the access site or inspect with debugger",
+      "Check network request timing and loading state indicators in UI components"
+    ],
+    "suggested_resolutions": [
+      "Use optional chaining: obj?.<property>",
+      "Add default values to destructuring: const { <property> = [] } = obj || {}",
+      "Render conditionally behind a loading guard: if (!obj) return <Spinner />"
+    ],
+    "tags": ["javascript", "typescript", "runtime", "undefined"]
+  },
+  {
+    "kb_id": "kb_js_type_map_not_func",
+    "error_pattern": "TypeError: <value>.map is not a function",
+    "language": "javascript",
+    "title": "JavaScript .map() Called on Non-Array",
+    "explanation": "Attempted to call the Array.prototype.map() method on an object, string, null, or undefined value.",
+    "possible_causes": [
+      "API returned an error object or single item instead of an expected list",
+      "State was initialized with null or undefined rather than an empty array []",
+      "Data property was wrapped in an envelope object (e.g. data.items rather than data)"
+    ],
+    "diagnostic_checks": [
+      "Inspect Array.isArray(value) immediately before the map invocation",
+      "Check server response shape in network dev tools or logs"
+    ],
+    "suggested_resolutions": [
+      "Initialize state with an empty array: useState([])",
+      "Use defensive fallback: (Array.isArray(items) ? items : []).map(...)",
+      "Unwrap the array correctly from response envelopes (e.g. response.data.items)"
+    ],
+    "tags": ["javascript", "typescript", "react", "array"]
+  },
+  {
+    "kb_id": "kb_node_mod_not_found",
+    "error_pattern": "Error: Cannot find module '<module_name>'",
+    "language": "javascript",
+    "title": "Node.js Module Not Found (MODULE_NOT_FOUND)",
+    "explanation": "Node.js module resolver failed to locate the specified module in node_modules or relative file paths.",
+    "possible_causes": [
+      "Package is listed in package.json but 'npm install' or 'pnpm install' has not been run",
+      "Relative path typo (e.g. missing './' or wrong file extension)",
+      "Package installed in a parent or sibling directory outside workspace scope"
+    ],
+    "diagnostic_checks": [
+      "Verify node_modules directory exists in the project root",
+      "Check package.json dependencies for the required package name"
+    ],
+    "suggested_resolutions": [
+      "Run 'npm install' or 'yarn install' in the project root",
+      "Verify relative path starts with './' or '../' when importing local files",
+      "Check case sensitivity if running on Linux CI environments"
+    ],
+    "tags": ["node", "javascript", "dependencies", "npm"]
+  },
+  {
+    "kb_id": "kb_node_econnrefused",
+    "error_pattern": "Error: connect ECONNREFUSED <host>:<port>",
+    "language": "javascript",
+    "title": "Network Connection Refused (ECONNREFUSED)",
+    "explanation": "The target machine or port actively refused the TCP connection request because no service is listening on that address.",
+    "possible_causes": [
+      "The downstream service (database, cache, mock server) is not running",
+      "Service is listening on a different port than configured in the client",
+      "Binding mismatch: service is bound to 127.0.0.1 (IPv4) but client contacted localhost (resolving to ::1 IPv6)",
+      "Docker container port mapping is missing or incorrect"
+    ],
+    "diagnostic_checks": [
+      "Check if service process is active using 'Get-Service', 'docker ps', or 'netstat -ano'",
+      "Verify connection using 'curl http://127.0.0.1:<port>' or 'Test-NetConnection'"
+    ],
+    "suggested_resolutions": [
+      "Start the required database, daemon, or server process",
+      "Use explicit '127.0.0.1' instead of 'localhost' to prevent IPv4/IPv6 ambiguity",
+      "Verify environment variables (e.g. PORT, DB_HOST, DB_PORT) match service configuration"
+    ],
+    "tags": ["network", "tcp", "backend", "connection"]
+  },
+  {
+    "kb_id": "kb_cfg_missing_env",
+    "error_pattern": "KeyError: '<ENV_VAR>' or missing environment configuration",
+    "language": "general",
+    "title": "Missing Environment Configuration Variable",
+    "explanation": "Application startup failed because a required environment variable was not supplied in the environment or .env file.",
+    "possible_causes": [
+      "The developer did not copy .env.example to .env upon initial setup",
+      "Environment variable name mismatch or casing discrepancy",
+      "Process execution runner did not load the .env file"
+    ],
+    "diagnostic_checks": [
+      "Check whether .env file exists in the current working directory",
+      "Verify environment variable is present via os.environ or process.env"
+    ],
+    "suggested_resolutions": [
+      "Create .env from .env.example and populate required keys",
+      "Use python-dotenv or dotenv-cli to load environment variables before launch",
+      "Supply sensible fallback defaults in configuration schemas where appropriate"
+    ],
+    "tags": ["configuration", "environment", "startup"]
+  },
+  {
+    "kb_id": "kb_tst_assert_err",
+    "error_pattern": "AssertionError: assert <actual> == <expected>",
+    "language": "general",
+    "title": "Test Assertion Failure",
+    "explanation": "A test assertion evaluated to False because actual output differed from expected behavior.",
+    "possible_causes": [
+      "Underlying business logic bug introduced in recent change",
+      "Stale test expectations not updated after an intended contract modification",
+      "Non-deterministic test state or shared database pollution between test runs"
+    ],
+    "diagnostic_checks": [
+      "Review the diff between actual and expected values in test output",
+      "Run the failing test in isolation to check for state leakage across tests"
+    ],
+    "suggested_resolutions": [
+      "Debug the source code where actual value diverged from expected specification",
+      "Update test expectation if the behavior change was deliberate and approved",
+      "Ensure test fixtures provide isolated, repeatable state"
+    ],
+    "tags": ["testing", "assertions", "pytest", "jest"]
+  },
+  {
+    "kb_id": "kb_net_eaddrinuse",
+    "error_pattern": "Error: listen EADDRINUSE: address already in use <address>:<port>",
+    "language": "general",
+    "title": "Port Already In Use (EADDRINUSE)",
+    "explanation": "A network server could not bind to the requested port because another active process is already listening on it.",
+    "possible_causes": [
+      "A previous instance of the server was not properly terminated (orphan background process)",
+      "Another application or Docker container is bound to the same port",
+      "Rapid restart while the socket is in TIME_WAIT state without SO_REUSEADDR enabled"
+    ],
+    "diagnostic_checks": [
+      "Find the conflicting process with 'netstat -ano | findstr <port>' or 'lsof -i :<port>'",
+      "Check Task Manager or Activity Monitor for orphan node/python processes"
+    ],
+    "suggested_resolutions": [
+      "Terminate the conflicting process using 'Stop-Process -Id <PID>' or 'kill <PID>'",
+      "Configure the application to use an alternative port via environment variable (e.g. PORT=8001)",
+      "Gracefully handle SIGINT and SIGTERM in server lifecycle"
+    ],
+    "tags": ["network", "port", "server", "eaddrinuse"]
+  },
+  {
+    "kb_id": "kb_bld_pkg_ver_mismatch",
+    "error_pattern": "ResolutionError: Conflicting dependencies found or incompatible package version",
+    "language": "general",
+    "title": "Dependency Version Conflict",
+    "explanation": "The package manager could not satisfy transitive dependency version constraints across requested packages.",
+    "possible_causes": [
+      "Two direct dependencies require mutually incompatible versions of a shared sub-dependency",
+      "Stale lockfile conflicting with updated manifest requirements",
+      "Installed Python or Node.js runtime version does not meet engine requirements"
+    ],
+    "diagnostic_checks": [
+      "Inspect dependency tree using 'pipdeptree' or 'npm ls'",
+      "Check package engine requirements against current runtime version"
+    ],
+    "suggested_resolutions": [
+      "Upgrade or pin compatible versions in pyproject.toml or package.json",
+      "Regenerate lockfile after clearing conflicting package entries",
+      "Use virtual environments or containerized environments with matched runtimes"
+    ],
+    "tags": ["build", "dependencies", "versioning", "package-manager"]
+  }
+]

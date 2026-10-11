@@ -1,0 +1,95 @@
+import React, { useState, useEffect } from 'react';
+import { Routes, Route, useLocation } from 'react-router-dom';
+import Navbar from './components/layout/Navbar';
+import Sidebar from './components/layout/Sidebar';
+import DemoBanner from './components/common/DemoBanner';
+import GlobalDashboard from './pages/GlobalDashboard';
+import ProjectWorkspace from './pages/ProjectWorkspace';
+import EventsHistory from './pages/EventsHistory';
+import CommandRunsPage from './pages/CommandRunsPage';
+import ErrorsDiagnosesPage from './pages/ErrorsDiagnosesPage';
+import VerifiedFixesPage from './pages/VerifiedFixesPage';
+import PerformanceLabPage from './pages/PerformanceLabPage';
+import { fetchProjects } from './api/devmemoryApi';
+
+export default function App() {
+  const [projects, setProjects] = useState([]);
+  const [isMock, setIsMock] = useState(true);
+  const location = useLocation();
+
+  useEffect(() => {
+    async function init() {
+      try {
+        const res = await fetchProjects();
+        setProjects(res.data);
+        setIsMock(res.isMock);
+      } catch (err) {
+        console.error('App init error:', err);
+      }
+    }
+    init();
+  }, []);
+
+  const handleDataLoaded = (projs, mockState) => {
+    if (projs) setProjects(projs);
+    setIsMock(mockState);
+  };
+
+  // Determine current active project from URL if in /projects/:id
+  const match = location.pathname.match(/\/projects\/([^/]+)/);
+  const selectedProjectId = match ? match[1] : null;
+
+  return (
+    <div className="flex h-screen w-full flex-col bg-[#F4F7FC] dark:bg-[#0B0F19] text-slate-800 dark:text-slate-100 relative overflow-hidden transition-colors duration-200">
+      {/* Soft background ambient pastel gradients for glassmorphism */}
+      <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+        <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-blue-100/70 dark:bg-indigo-950/40 blur-3xl transition-colors duration-300" />
+        <div className="absolute top-1/4 -right-32 w-96 h-96 rounded-full bg-purple-100/70 dark:bg-purple-950/30 blur-3xl transition-colors duration-300" />
+        <div className="absolute -bottom-32 left-1/3 w-96 h-96 rounded-full bg-emerald-100/50 dark:bg-emerald-950/20 blur-3xl transition-colors duration-300" />
+      </div>
+
+      {/* Top Header: Stationary & fixed at top of viewport */}
+      <header className="shrink-0 z-30 flex flex-col w-full shadow-xs">
+        <DemoBanner isMock={isMock} />
+        <Navbar
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          isMock={isMock}
+        />
+      </header>
+
+      {/* Main Layout Area: Stationary left sidebar + vertically scrollable main content */}
+      <div className="flex flex-1 min-h-0 overflow-hidden relative">
+        {/* Persistent Sidebar */}
+        <Sidebar projects={projects} />
+
+        {/* Main Content View: Primary vertical scroll container */}
+        <main className="flex-1 min-w-0 h-full overflow-y-auto" id="main-content">
+          <Routes>
+            <Route
+              path="/"
+              element={<GlobalDashboard onDataLoaded={handleDataLoaded} />}
+            />
+            <Route path="/runs" element={<CommandRunsPage />} />
+            <Route path="/incidents" element={<ErrorsDiagnosesPage />} />
+            <Route path="/fixes" element={<VerifiedFixesPage />} />
+            <Route path="/performance" element={<PerformanceLabPage />} />
+            <Route path="/events" element={<EventsHistory />} />
+            <Route path="/projects/:projectId/*" element={<ProjectWorkspace />} />
+            <Route
+              path="*"
+              element={
+                <div className="p-12 text-center">
+                  <h2 className="text-lg font-bold text-slate-800 font-mono">Page Not Found</h2>
+                  <p className="mt-2 text-xs text-slate-500">
+                    The requested view does not exist in DevMemory.
+                  </p>
+                </div>
+              }
+            />
+          </Routes>
+        </main>
+      </div>
+    </div>
+  );
+}

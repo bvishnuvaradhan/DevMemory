@@ -1,0 +1,99 @@
+import React from 'react';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, Repeat, Layers } from 'lucide-react';
+import Badge from '../common/Badge';
+
+export default function RecurringErrorsWidget({ recurringErrors = [] }) {
+  const safeRecurringErrors = Array.isArray(recurringErrors) ? recurringErrors : [];
+
+  return (
+    <div className="rounded-2xl border border-white/80 bg-white/75 dark:border-slate-800/80 dark:bg-slate-900/75 backdrop-blur-md p-5 shadow-glass">
+      <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-500 dark:text-amber-400" />
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 font-mono">Recurring Errors</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="warning" size="xs">
+            {safeRecurringErrors.length} Detected
+          </Badge>
+          <Link
+            to="/incidents"
+            className="text-xs font-mono text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold transition-colors"
+          >
+            All Incidents →
+          </Link>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {safeRecurringErrors.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 p-6 text-center">
+            <p className="text-xs font-mono text-slate-500 dark:text-slate-400">
+              No recurring error clusters detected across active projects.
+            </p>
+          </div>
+        ) : (
+          safeRecurringErrors.map((err, idx) => {
+            const rawProjects = err?.affectedProjects ?? err?.affected_projects;
+            const affectedProjects = Array.isArray(rawProjects)
+              ? rawProjects
+              : (err?.projectId || err?.project_id ? [err?.projectId || err?.project_id] : []);
+
+            return (
+              <div
+                key={err?.clusterId || err?.cluster_id || idx}
+                className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/90 dark:bg-slate-800/80 p-3.5 hover:border-indigo-200 dark:hover:border-indigo-500/50 hover:shadow-xs transition-all"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-semibold text-rose-600 dark:text-rose-400">
+                        {err?.errorType || err?.error_type || 'UnknownError'}
+                      </span>
+                      <span className="rounded bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 text-[10px] text-slate-600 dark:text-slate-300 font-medium">
+                        {err?.category || 'General'}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 font-mono text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 bg-slate-50 dark:bg-slate-900/60 p-2 rounded-lg border border-slate-200/70 dark:border-slate-700/60">
+                      {err?.sampleMessage || err?.sample_message || 'No error details recorded'}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col items-end shrink-0">
+                    <span className="flex items-center gap-1 font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
+                      <Repeat className="h-3 w-3" />
+                      {err?.occurrences ?? err?.count ?? 1}x
+                    </span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">recurred</span>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Layers className="h-3 w-3 text-slate-400 dark:text-slate-500 shrink-0" />
+                    <span>Projects:</span>
+                    {affectedProjects.length > 0 ? (
+                      affectedProjects.map((p, i) => (
+                        <span key={i} className="text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700/80 px-1.5 py-0.5 rounded border border-slate-200/60 dark:border-slate-600 font-medium">
+                          {p}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-slate-400 dark:text-slate-500 italic">None</span>
+                    )}
+                  </div>
+                  {Boolean(err?.hasVerifiedFix ?? err?.has_verified_fix) && (
+                    <Badge variant="success" size="xs">
+                      Fix Verified
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
